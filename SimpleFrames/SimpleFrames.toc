@@ -1,0 +1,15 @@
+## Interface: 20505
+## Title: SimpleFrames
+## Notes: Clean standalone party and raid frames for Classic Anniversary TBC.
+## Author: Xyloman
+## Version: 0.1.2
+## SavedVariablesPerCharacter: SimpleFramesDB
+
+Defaults.lua
+Util.lua
+Auras.lua
+Blizzard.lua
+Frames.lua
+Options.lua
+Minimap.lua
+Core.lua
