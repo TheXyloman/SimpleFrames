@@ -164,13 +164,78 @@ function SF:CreateCheck(parent, label, x, y, getter, setter, protectedChange)
   return check
 end
 
-function SF:CreateCommandButton(parent, label, x, y, width, onClick)
+function SF:CreateCommandButton(parent, label, x, y, width, onClick, enabledGetter)
   local button = CreateFrame("Button", nil, parent, "UIPanelButtonTemplate")
   button:SetPoint("TOPLEFT", parent, "TOPLEFT", x, y)
   button:SetSize(width or 120, 24)
   button:SetText(label)
   button:SetScript("OnClick", onClick)
+
+  if enabledGetter then
+    function button:Refresh()
+      if enabledGetter() then
+        self:Enable()
+      else
+        self:Disable()
+      end
+    end
+    self:TrackOptionControl(button)
+  end
+
   return button
+end
+
+function SF:CreateEditBox(parent, label, x, y, width, getter, setter)
+  self.editBoxCount = (self.editBoxCount or 0) + 1
+  local name = "SimpleFramesEditBox" .. self.editBoxCount
+
+  local labelText = parent:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+  labelText:SetPoint("TOPLEFT", parent, "TOPLEFT", x, y)
+  labelText:SetText(label)
+
+  local editBox = CreateFrame("EditBox", name, parent, "InputBoxTemplate")
+  editBox:SetPoint("TOPLEFT", labelText, "BOTTOMLEFT", 5, -6)
+  editBox:SetSize(width or 160, 24)
+  editBox:SetAutoFocus(false)
+  editBox:SetMaxLetters(32)
+  if editBox.SetTextInsets then
+    editBox:SetTextInsets(4, 4, 0, 0)
+  end
+
+  editBox:SetScript("OnTextChanged", function(box)
+    if box.refreshing then
+      return
+    end
+    setter(box:GetText() or "")
+  end)
+
+  editBox:SetScript("OnEnterPressed", function(box)
+    setter(box:GetText() or "")
+    box:ClearFocus()
+  end)
+
+  editBox:SetScript("OnEscapePressed", function(box)
+    box.refreshing = true
+    box:SetText(getter() or "")
+    box.refreshing = false
+    box:ClearFocus()
+  end)
+
+  function editBox:Refresh()
+    if self:HasFocus() then
+      return
+    end
+
+    local value = getter() or ""
+    if self:GetText() ~= value then
+      self.refreshing = true
+      self:SetText(value)
+      self.refreshing = false
+    end
+  end
+
+  self:TrackOptionControl(editBox)
+  return editBox
 end
 
 function SF:CreateSlider(parent, label, x, y, minValue, maxValue, step, getter, setter, protectedChange)
@@ -297,6 +362,118 @@ function SF:CreateDropdown(parent, label, x, y, width, values, getter, setter, p
   return dropdown
 end
 
+function SF:CreateDynamicDropdown(parent, label, x, y, width, getValues, getter, setter)
+  if not UIDropDownMenu_CreateInfo or not UIDropDownMenu_Initialize or not UIDropDownMenu_AddButton or not UIDropDownMenu_SetText or not UIDropDownMenu_SetWidth then
+    return self:CreateDynamicCycle(parent, label, x, y, width, getValues, getter, setter)
+  end
+
+  self.dropdownCount = (self.dropdownCount or 0) + 1
+  local name = "SimpleFramesDropdown" .. self.dropdownCount
+
+  local labelText = parent:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+  labelText:SetPoint("TOPLEFT", parent, "TOPLEFT", x, y)
+  labelText:SetText(label)
+
+  local dropdown = CreateFrame("Frame", name, parent, "UIDropDownMenuTemplate")
+  dropdown:SetPoint("TOPLEFT", labelText, "BOTTOMLEFT", -16, -2)
+
+  local function findText(value)
+    local values = getValues()
+    for i = 1, #values do
+      if values[i].value == value then
+        return values[i].text
+      end
+    end
+    return "No saved profiles"
+  end
+
+  UIDropDownMenu_SetWidth(dropdown, width or 150)
+  UIDropDownMenu_Initialize(dropdown, function(_, level)
+    local values = getValues()
+    if #values == 0 then
+      local info = UIDropDownMenu_CreateInfo()
+      info.text = "No saved profiles"
+      info.disabled = true
+      UIDropDownMenu_AddButton(info, level)
+      return
+    end
+
+    local selected = getter()
+    for i = 1, #values do
+      local info = UIDropDownMenu_CreateInfo()
+      info.text = values[i].text
+      info.value = values[i].value
+      info.checked = values[i].value == selected
+      info.func = function(item)
+        setter(item.value)
+        UIDropDownMenu_SetText(dropdown, findText(item.value))
+        SF:RefreshOptions()
+      end
+      UIDropDownMenu_AddButton(info, level)
+    end
+  end)
+
+  function dropdown:Refresh()
+    UIDropDownMenu_SetText(self, findText(getter()))
+  end
+
+  self:TrackOptionControl(dropdown)
+  return dropdown
+end
+
+function SF:CreateDynamicCycle(parent, label, x, y, width, getValues, getter, setter)
+  local labelText = parent:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+  labelText:SetPoint("TOPLEFT", parent, "TOPLEFT", x, y)
+  labelText:SetText(label)
+
+  local button = CreateFrame("Button", nil, parent, "UIPanelButtonTemplate")
+  button:SetPoint("TOPLEFT", labelText, "BOTTOMLEFT", 0, -4)
+  button:SetSize(width or 150, 24)
+
+  local function findIndex(values, value)
+    for i = 1, #values do
+      if values[i].value == value then
+        return i
+      end
+    end
+    return 0
+  end
+
+  button:SetScript("OnClick", function()
+    local values = getValues()
+    if #values == 0 then
+      return
+    end
+
+    local index = findIndex(values, getter()) + 1
+    if index > #values then
+      index = 1
+    end
+    setter(values[index].value)
+    SF:RefreshOptions()
+  end)
+
+  function button:Refresh()
+    local values = getValues()
+    if #values == 0 then
+      self:SetText("No saved profiles")
+      self:Disable()
+      return
+    end
+
+    self:Enable()
+    local selected = getter()
+    local index = findIndex(values, selected)
+    if index == 0 then
+      index = 1
+    end
+    self:SetText(values[index].text)
+  end
+
+  self:TrackOptionControl(button)
+  return button
+end
+
 function SF:CreateCycle(parent, label, x, y, width, values, getter, setter, protectedChange)
   local labelText = parent:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
   labelText:SetPoint("TOPLEFT", parent, "TOPLEFT", x, y)
@@ -341,6 +518,13 @@ function SF:OnOptionChanged(protectedChange)
   else
     self:RefreshAllUnitData()
     self:UpdateAnchorVisibility()
+  end
+end
+
+function SF:SetProfileStatus(message)
+  self.profileStatusMessage = message or ""
+  if self.profileStatusText then
+    self.profileStatusText:SetText(self.profileStatusMessage)
   end
 end
 
@@ -398,6 +582,42 @@ function SF:BuildGeneralOptions(panel)
   self:CreateCommandButton(panel, "Reset all", 0, -204, 120, function()
     SF:ResetDatabase()
   end)
+
+  self:CreateSectionTitle(panel, "Profiles", 0, -254)
+
+  self:CreateEditBox(panel, "Profile name", 0, -284, 180,
+    function() return SF:GetProfileNameInput() end,
+    function(value) SF:SetProfileNameInput(value) end
+  )
+
+  self:CreateDynamicDropdown(panel, "Saved profile", 230, -284, 170,
+    function() return SF:BuildProfileDropdownValues() end,
+    function() return SF:GetSelectedProfileName() end,
+    function(value) SF:SetSelectedProfileName(value) end
+  )
+
+  self:CreateCommandButton(panel, "Save", 0, -352, 88, function()
+    SF:SaveProfile(SF:GetProfileNameInput())
+  end)
+
+  self:CreateCommandButton(panel, "Load", 98, -352, 88, function()
+    SF:LoadProfile(SF:GetSelectedProfileName())
+  end, function()
+    return SF:GetSelectedProfileName() ~= nil
+  end)
+
+  self:CreateCommandButton(panel, "Delete", 196, -352, 88, function()
+    SF:DeleteProfile(SF:GetSelectedProfileName())
+  end, function()
+    return SF:GetSelectedProfileName() ~= nil
+  end)
+
+  self.profileStatusText = panel:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+  self.profileStatusText:SetPoint("TOPLEFT", panel, "TOPLEFT", 0, -392)
+  self.profileStatusText:SetWidth(440)
+  self.profileStatusText:SetJustifyH("LEFT")
+  self.profileStatusText:SetTextColor(0.72, 0.82, 0.96, 1)
+  self.profileStatusText:SetText(self.profileStatusMessage or "")
 end
 
 function SF:BuildLayoutOptions(panel)

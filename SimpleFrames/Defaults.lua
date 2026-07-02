@@ -1,7 +1,7 @@
 local ADDON_NAME, SF = ...
 
 SF.name = ADDON_NAME
-SF.version = "0.1.2"
+SF.version = "0.1.3"
 
 SF.defaults = {
   profileVersion = 1,

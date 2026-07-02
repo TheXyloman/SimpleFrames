@@ -20,8 +20,24 @@ local function copyDefaults(src, dst)
   return dst
 end
 
+local function deepCopy(value)
+  if type(value) ~= "table" then
+    return value
+  end
+
+  local copy = {}
+  for key, child in pairs(value) do
+    copy[deepCopy(key)] = deepCopy(child)
+  end
+  return copy
+end
+
 function SF:CopyDefaults(src, dst)
   return copyDefaults(src, dst)
+end
+
+function SF:DeepCopy(value)
+  return deepCopy(value)
 end
 
 function SF:Clamp(value, minValue, maxValue)

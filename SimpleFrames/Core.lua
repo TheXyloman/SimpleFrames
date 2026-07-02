@@ -1,17 +1,123 @@
 local ADDON_NAME, SF = ...
 
+local function trimText(text)
+  text = tostring(text or "")
+  text = string.gsub(text, "^%s+", "")
+  text = string.gsub(text, "%s+$", "")
+  return text
+end
+
 function SF:InitDatabase()
   if type(SimpleFramesDB) ~= "table" then
     SimpleFramesDB = {}
   end
   self.db = self:CopyDefaults(self.defaults, SimpleFramesDB)
   SimpleFramesDB = self.db
+
+  self:EnsureProfileDatabase()
 end
 
-function SF:ResetDatabase()
-  SimpleFramesDB = self:CopyDefaults(self.defaults, {})
-  self.db = SimpleFramesDB
+function SF:EnsureProfileDatabase()
+  if type(SimpleFramesProfilesDB) ~= "table" then
+    SimpleFramesProfilesDB = {}
+  end
+  if type(SimpleFramesProfilesDB.profiles) ~= "table" then
+    SimpleFramesProfilesDB.profiles = {}
+  end
+  self.profileDB = SimpleFramesProfilesDB
+end
 
+function SF:GetDefaultProfileName()
+  local playerName = UnitName and UnitName("player")
+  if playerName and playerName ~= "" then
+    return playerName
+  end
+  return "Default"
+end
+
+function SF:NormalizeProfileName(name)
+  name = trimText(name)
+  if name == "" then
+    return nil
+  end
+  if string.len(name) > 32 then
+    name = string.sub(name, 1, 32)
+  end
+  return name
+end
+
+function SF:GetProfileNameInput()
+  self.profileNameInputText = self:NormalizeProfileName(self.profileNameInputText) or self:GetDefaultProfileName()
+  return self.profileNameInputText
+end
+
+function SF:SetProfileNameInput(name)
+  self.profileNameInputText = trimText(name)
+end
+
+function SF:GetProfileNames()
+  self:EnsureProfileDatabase()
+
+  local names = {}
+  for name, profile in pairs(self.profileDB.profiles) do
+    if type(name) == "string" and type(profile) == "table" then
+      names[#names + 1] = name
+    end
+  end
+
+  table.sort(names, function(a, b)
+    return string.lower(a) < string.lower(b)
+  end)
+  return names
+end
+
+function SF:GetSelectedProfileName()
+  self:EnsureProfileDatabase()
+  if self.selectedProfileName and self.profileDB.profiles[self.selectedProfileName] then
+    return self.selectedProfileName
+  end
+
+  local names = self:GetProfileNames()
+  self.selectedProfileName = names[1]
+  return self.selectedProfileName
+end
+
+function SF:SetSelectedProfileName(name)
+  self:EnsureProfileDatabase()
+  if name and self.profileDB.profiles[name] then
+    self.selectedProfileName = name
+    self.profileNameInputText = name
+  end
+end
+
+function SF:BuildProfileDropdownValues()
+  local names = self:GetProfileNames()
+  local values = {}
+  for i = 1, #names do
+    values[i] = {
+      value = names[i],
+      text = names[i],
+    }
+  end
+  return values
+end
+
+function SF:CaptureProfile()
+  local profile = self:DeepCopy(self.db or {})
+  profile = self:CopyDefaults(self.defaults, profile)
+
+  if profile.preview then
+    profile.preview.mode = "off"
+  end
+
+  return profile
+end
+
+function SF:CreateDatabaseFromProfile(profile)
+  return self:CopyDefaults(self.defaults, self:DeepCopy(profile or {}))
+end
+
+function SF:ApplyDatabaseState()
   if self.anchor then
     self:RestoreFramePosition(self.anchor, self.db.framePosition, self.defaults.framePosition)
   end
@@ -22,9 +128,106 @@ function SF:ResetDatabase()
   self:ApplyLockState()
   self:RefreshMinimapButton()
   self:ApplyBlizzardFrames()
-  self:SetPreviewMode("off")
+
+  if self.db.preview and self.db.preview.mode ~= "off" and self.db.preview.animate then
+    self:EnsurePreviewData()
+    self:StartPreviewTicker()
+  else
+    self:StopPreviewTicker()
+  end
+
   self:RequestProtectedRefresh()
   self:RefreshOptions()
+end
+
+function SF:SaveProfile(name)
+  self:EnsureProfileDatabase()
+
+  name = self:NormalizeProfileName(name) or self:GetProfileNameInput()
+  if not name then
+    self:Print("enter a profile name")
+    if self.SetProfileStatus then
+      self:SetProfileStatus("Enter a profile name.")
+    end
+    return false
+  end
+
+  self.profileDB.profiles[name] = self:CaptureProfile()
+  self.selectedProfileName = name
+  self.profileNameInputText = name
+
+  self:Print("profile saved: " .. name)
+  if self.SetProfileStatus then
+    self:SetProfileStatus("Saved profile: " .. name)
+  end
+  self:RefreshOptions()
+  return true
+end
+
+function SF:LoadProfile(name)
+  self:EnsureProfileDatabase()
+
+  name = self:NormalizeProfileName(name) or self:GetSelectedProfileName()
+  local profile = name and self.profileDB.profiles[name]
+  if not profile then
+    self:Print("profile not found")
+    if self.SetProfileStatus then
+      self:SetProfileStatus("Choose a saved profile first.")
+    end
+    return false
+  end
+
+  SimpleFramesDB = self:CreateDatabaseFromProfile(profile)
+  self.db = SimpleFramesDB
+  self.selectedProfileName = name
+  self.profileNameInputText = name
+
+  self:ApplyDatabaseState()
+  self:Print("profile loaded: " .. name)
+  if self.SetProfileStatus then
+    self:SetProfileStatus("Loaded profile: " .. name)
+  end
+  return true
+end
+
+function SF:DeleteProfile(name)
+  self:EnsureProfileDatabase()
+
+  name = self:NormalizeProfileName(name) or self:GetSelectedProfileName()
+  if not name or not self.profileDB.profiles[name] then
+    self:Print("profile not found")
+    if self.SetProfileStatus then
+      self:SetProfileStatus("Choose a saved profile first.")
+    end
+    return false
+  end
+
+  self.profileDB.profiles[name] = nil
+  if self.selectedProfileName == name then
+    self.selectedProfileName = nil
+  end
+
+  self:Print("profile deleted: " .. name)
+  if self.SetProfileStatus then
+    self:SetProfileStatus("Deleted profile: " .. name)
+  end
+  self:RefreshOptions()
+  return true
+end
+
+function SF:ListProfiles()
+  local names = self:GetProfileNames()
+  if #names == 0 then
+    self:Print("no saved profiles")
+    return
+  end
+  self:Print("profiles: " .. table.concat(names, ", "))
+end
+
+function SF:ResetDatabase()
+  SimpleFramesDB = self:CopyDefaults(self.defaults, {})
+  self.db = SimpleFramesDB
+  self:ApplyDatabaseState()
 end
 
 function SF:RegisterRuntimeEvents()
@@ -97,13 +300,57 @@ function SF:Print(message)
   DEFAULT_CHAT_FRAME:AddMessage("|cff8fbdf7SimpleFrames|r: " .. tostring(message))
 end
 
+function SF:HandleProfileSlash(command, rest)
+  rest = trimText(rest)
+
+  local action, name = string.match(rest, "^(%S+)%s*(.-)$")
+  action = string.lower(action or "")
+  name = trimText(name)
+
+  if command == "profiles" or action == "" or action == "list" then
+    self:ListProfiles()
+    return
+  end
+
+  if action == "save" then
+    self:SaveProfile(name)
+    return
+  end
+
+  if action == "load" then
+    if name == "" then
+      self:Print("use /sfr profile load <name>")
+      return
+    end
+    self:LoadProfile(name)
+    return
+  end
+
+  if action == "delete" or action == "remove" then
+    if name == "" then
+      self:Print("use /sfr profile delete <name>")
+      return
+    end
+    self:DeleteProfile(name)
+    return
+  end
+
+  self:Print("/sfr profile save <name>, /sfr profile load <name>, /sfr profile delete <name>, /sfr profiles")
+end
+
 function SF:HandleSlash(message)
-  message = string.lower(message or "")
-  message = string.gsub(message, "^%s+", "")
-  message = string.gsub(message, "%s+$", "")
+  local rawMessage = trimText(message)
+  message = string.lower(rawMessage)
 
   if message == "" or message == "options" or message == "config" then
     self:ToggleOptions()
+    return
+  end
+
+  local first, rest = string.match(rawMessage, "^(%S+)%s*(.-)$")
+  first = string.lower(first or "")
+  if first == "profile" or first == "profiles" then
+    self:HandleProfileSlash(first, rest)
     return
   end
 
@@ -163,7 +410,7 @@ function SF:HandleSlash(message)
     return
   end
 
-  self:Print("/sfr, /sfr lock, /sfr unlock, /sfr test party, /sfr test raid, /sfr test off, /sfr reset")
+  self:Print("/sfr, /sfr lock, /sfr unlock, /sfr test party, /sfr test raid, /sfr test off, /sfr reset, /sfr profiles")
 end
 
 function SF:OnRosterEvent()
