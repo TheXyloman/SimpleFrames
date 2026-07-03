@@ -1,8 +1,12 @@
 # SimpleFrames
 
-Standalone Classic Anniversary TBC party and raid frames.
+Standalone Classic Anniversary TBC party and raid frames with secure click-casting, spell suggestions, priority targets, profiles, preview mode, and lightweight native options.
 
-⚠️ **Note:** This project is currently a **work in progress** and not yet at final release status. Please use at your own discretion, and be aware that features, APIs, and behavior may change. Your feedback and contributions are welcome!
+SimpleFrames is intentionally dependency-light. It does not embed Ace, LibStub, LibDataBroker, or other addon frameworks.
+
+## Status
+
+This project is a work in progress and is not yet a final release. Features, saved variables, and behavior may still change.
 
 ## Install
 
@@ -12,15 +16,154 @@ Copy the `SimpleFrames` folder into:
 
 The addon TOC targets `## Interface: 20505`.
 
-## Commands
+## Feature Breakdown
+
+### Party And Raid Frames
+
+- Shows the player while solo, party frames while grouped, and raid frames in raids.
+- Uses secure unit buttons so targeting and click-casting work through protected WoW frame attributes.
+- Middle click targets the clicked real unit by default.
+- Layout and unit assignment changes are deferred while in combat.
+- Blizzard party and raid frames can be hidden automatically.
+
+| Solo frame | Solo frame with power and raid icon |
+| --- | --- |
+| <a href="https://i.ibb.co/8gcnb9d1/solo-frame-basic.png"><img src="https://i.ibb.co/8gcnb9d1/solo-frame-basic.png" alt="Solo frame basic" width="320"></a> | <a href="https://i.ibb.co/ksD0fwCb/solo-frame-power-raid-icon.png"><img src="https://i.ibb.co/ksD0fwCb/solo-frame-power-raid-icon.png" alt="Solo frame with power and raid icon" width="320"></a> |
+
+| Raid preview with groups and indicators |
+| --- |
+| <a href="https://ibb.co/G3Rtdbr4"><img src="https://i.ibb.co/cXQCy7sS/raid-preview-groups-auras.png" alt="Raid preview with groups, auras, raid icons, and status indicators" width="520"></a> |
+
+### Layout
+
+- Adjustable frame width, frame height, spacing, and mana/power bar height.
+- Raid groups can be arranged across configurable group columns.
+- Unit direction can be vertical or horizontal.
+- Raid group headers can be shown or hidden.
+- Frames can be locked or unlocked.
+- When unlocked, the main frame and Prio targets frame can be dragged.
+
+### Text
+
+- Health text modes: percent, raw, raw + percent, or off.
+- Mana/power text modes: percent, raw, raw + percent, or off.
+- Name text can be upper-left or centered.
+- Name, health, and power font sizes are adjustable.
+- Name, health, and power text offsets are adjustable.
+
+### Auras And Indicators
+
+- Aura display modes: buffs + debuffs, buffs only, debuffs only, or off.
+- Configurable maximum buff and debuff icon counts.
+- Configurable low-health threshold.
+- Optional stun and silence indicators.
+- Buff and debuff icon positions can be adjusted.
+- Debuff coloring is based on dispel type where available.
+- Stun and silence detection is best-effort from visible auras and curated TBC spell IDs.
+
+### Spells And Click-Casting
+
+- Native click-casting is built into SimpleFrames without external libraries.
+- Supported bind keys:
+  - `L`: Left click
+  - `R`: Right click
+  - `SL`: Shift + left click
+  - `SR`: Shift + right click
+  - `AL`: Alt + left click
+  - `AR`: Alt + right click
+- Bindings can be set from the **Spells** options tab or with `/sfr bind`.
+- The **Spells** tab shows matching spellbook spells as you type.
+- Click a spell suggestion or press Enter to pick the first visible match.
+- Blank left and right click bindings do nothing, preserving the default behavior.
+- Middle click remains reserved for targeting.
+- Spell binding changes are deferred while in combat.
+
+Examples:
+
+- `/sfr bind L Flash Heal`
+- `/sfr bind SR Greater Heal`
+- `/sfr bind R` clears right click.
+
+### Prio Targets
+
+- Shift + Middle Click a real party or raid unit to add or remove that unit from the separate **Prio targets** frame.
+- The Prio targets frame uses the same visual style as the main frames.
+- Prio target buttons use the same click-cast bindings as the main frames.
+- The frame has its own saved position.
+- Drag the frame by its title while SimpleFrames is unlocked.
+- Use `/sfr prio clear` or the **Spells** tab to clear all prio targets.
+- Prio targets are saved in the active profile and only show while those units are in the current party or raid.
+- Priority changes are blocked while in combat when they would require protected updates.
+
+### Profiles
+
+- Active settings are saved per character in `SimpleFramesDB`.
+- Reusable profiles are saved account-wide in `SimpleFramesProfilesDB`.
+- Profiles include layout, text, aura, spell, prio target, minimap, Blizzard UI, and frame position settings.
+- Preview mode is not saved as active when capturing a profile.
+
+### Preview Mode
+
+- Party preview shows a simulated 5-player group.
+- Raid preview shows a simulated 40-player raid.
+- Preview health and power values can animate.
+- Preview mode is useful for layout tuning without needing a group.
+- Preview can be started from the options panel or slash commands.
+
+| Animated raid preview |
+| --- |
+| <a href="https://ibb.co/50MCZXc"><img src="https://i.ibb.co/sfmc7p3/raid-preview-groups-animated.gif" alt="Animated raid preview with changing group health" width="520"></a> |
+
+### Minimap Button
+
+- Optional minimap button.
+- Left click opens the options panel.
+- Right click stops preview mode.
+- The minimap button can be dragged around the minimap.
+
+### Options Menu
+
+The options panel is native UI and has no addon-library dependency.
+
+- **General**: lock state, minimap button, frame/options reset, preview shortcuts, full reset, profiles.
+- **Layout**: size, spacing, columns, unit direction, power bar, raid headers.
+- **Text**: health/power text modes, name placement, raid icons, font sizes, text offsets.
+- **Auras**: aura mode, icon counts, low-health threshold, crowd-control indicators, icon offsets.
+- **Spells**: click-cast bindings, spell suggestions, Prio targets enable/clear controls.
+- **Blizzard UI**: hide or restore Blizzard party and raid frames.
+- **Preview**: party preview, raid preview, preview off, animation toggle.
+
+| General | Layout |
+| --- | --- |
+| <a href="https://ibb.co/J8z8mXz"><img src="https://i.ibb.co/HRrRBmr/options-general-tab.png" alt="Options General tab" width="360"></a> | <a href="https://ibb.co/HT0nPcQq"><img src="https://i.ibb.co/zV1G23wZ/options-layout-tab.png" alt="Options Layout tab" width="360"></a> |
+
+| Text | Auras |
+| --- | --- |
+| <a href="https://ibb.co/Psqf3F6J"><img src="https://i.ibb.co/TD9FpYgJ/options-text-tab.png" alt="Options Text tab" width="360"></a> | <a href="https://ibb.co/rGhtpcQ9"><img src="https://i.ibb.co/Fb1WY0hp/options-auras-tab.png" alt="Options Auras tab" width="360"></a> |
+
+| Spells | Blizzard UI |
+| --- | --- |
+| <a href="https://ibb.co/S4ZhvN0z"><img src="https://i.ibb.co/mVPLzJt3/options-spells-tab.png" alt="Options Spells tab" width="360"></a> | <a href="https://ibb.co/Zp7Tj4fx"><img src="https://i.ibb.co/XrMJQ0Wt/options-blizzard-ui-tab.png" alt="Options Blizzard UI tab" width="360"></a> |
+
+| Preview |
+| --- |
+| <a href="https://ibb.co/KgcP3gf"><img src="https://i.ibb.co/NqgvHqJ/options-preview-tab.png" alt="Options Preview tab" width="360"></a> |
+
+## Slash Commands
 
 - `/sfr`, `/sframes`, or `/simpleframes` opens the options panel.
-- `/sfr lock` locks the frame position.
-- `/sfr unlock` unlocks the frame position and shows the drag handle.
-- `/sfr test party` shows the party preview.
-- `/sfr test raid` shows the raid preview.
-- `/sfr test off` turns preview off.
+- `/sfr lock` locks frame movement.
+- `/sfr unlock` unlocks frame movement.
+- `/sfr test party` or `/sfr preview party` starts party preview.
+- `/sfr test raid` or `/sfr preview raid` starts raid preview.
+- `/sfr test off` or `/sfr preview off` stops preview.
 - `/sfr reset` restores defaults.
+- `/sfr hideblizzard` hides Blizzard party and raid frames.
+- `/sfr showblizzard` restores Blizzard party and raid frames.
+- `/sfr bind L|R|SL|SR|AL|AR <spell>` sets or clears a click-cast spell.
+- `/sfr prio clear` clears the Prio targets frame.
+- `/sfr prio show` enables the Prio targets frame.
+- `/sfr prio hide` disables the Prio targets frame.
 - `/sfr profiles` lists saved account-wide profiles.
 - `/sfr profile save <name>` saves the current settings as a reusable profile.
 - `/sfr profile load <name>` loads a saved profile on the current character.
@@ -28,11 +171,33 @@ The addon TOC targets `## Interface: 20505`.
 
 `/sf` is used by some world-buff/Songflower addons. SimpleFrames only registers `/sf` if it is not already taken, so `/sfr` is the reliable short command.
 
-## Notes
+## Combat Lockdown Notes
 
-- Profiles are saved account-wide in `SimpleFramesProfilesDB`, while the active settings remain per-character in `SimpleFramesDB`.
-- Middle click targets a real unit through secure frame attributes.
-- Left and right clicks are intentionally unused.
-- The minimap button opens options on left click, stops preview on right click, and can be dragged around the minimap.
-- Layout and unit assignment changes are queued while in combat.
-- Stun and silence detection is best-effort from visible auras and curated TBC spell IDs.
+WoW restricts secure frame changes in combat. SimpleFrames follows those rules.
+
+- Layout and roster assignment changes are queued until combat ends.
+- Click-cast binding changes are queued until combat ends.
+- Prio target display refreshes are queued when protected updates are required.
+- Adding, removing, or clearing prio targets is blocked while in combat.
+
+## Saved Variables
+
+- `SimpleFramesDB`: per-character active settings.
+- `SimpleFramesProfilesDB`: account-wide reusable profiles.
+
+## Defaults At A Glance
+
+- Frame width: `160`
+- Frame height: `38`
+- Power height: `10`
+- Group columns: `5`
+- Unit direction: vertical
+- Raid headers: on
+- Raid target icons: on
+- Health text: raw + percent
+- Power text: raw + percent
+- Aura mode: buffs + debuffs
+- Low health threshold: `15%`
+- Click-casting: enabled, with all spell bindings blank
+- Prio targets: enabled
+- Hide Blizzard frames: enabled

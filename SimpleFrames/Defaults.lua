@@ -61,10 +61,62 @@ SF.defaults = {
     mode = "off",
     animate = true,
   },
+  clickCast = {
+    enabled = true,
+    bindings = {
+      L = "",
+      R = "",
+      SL = "",
+      SR = "",
+      AL = "",
+      AR = "",
+    },
+  },
+  priority = {
+    enabled = true,
+    showFrame = true,
+    framePosition = {
+      point = "CENTER",
+      relativePoint = "CENTER",
+      x = 240,
+      y = -160,
+    },
+    columns = 1,
+    spacing = 4,
+    list = {},
+    order = {},
+  },
   minimap = {
     show = true,
     angle = 225,
   },
+}
+
+SF.clickCastBindingOrder = {
+  "L",
+  "R",
+  "SL",
+  "SR",
+  "AL",
+  "AR",
+}
+
+SF.clickCastBindingLabels = {
+  L = "Left Click",
+  R = "Right Click",
+  SL = "Shift + Left",
+  SR = "Shift + Right",
+  AL = "Alt + Left",
+  AR = "Alt + Right",
+}
+
+SF.clickCastBindingAttributes = {
+  L = { button = 1, prefix = "" },
+  R = { button = 2, prefix = "" },
+  SL = { button = 1, prefix = "shift-" },
+  SR = { button = 2, prefix = "shift-" },
+  AL = { button = 1, prefix = "alt-" },
+  AR = { button = 2, prefix = "alt-" },
 }
 
 SF.classOrder = {

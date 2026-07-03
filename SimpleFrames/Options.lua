@@ -3,6 +3,48 @@ local _, SF = ...
 local BACKDROP_TEMPLATE = BackdropTemplateMixin and "BackdropTemplate" or nil
 local PANEL_WIDTH = 520
 local PANEL_HEIGHT = 620
+local TAB_HEIGHT = 24
+local SPELL_SUGGESTION_ROWS = 7
+local SPELL_SUGGESTION_ROW_HEIGHT = 20
+
+local function buildSpellList()
+  local spells = {}
+  local seen = {}
+
+  if not GetNumSpellTabs or not GetSpellTabInfo or not GetSpellBookItemInfo or not GetSpellBookItemName then
+    return spells
+  end
+
+  local bookType = BOOKTYPE_SPELL or "spell"
+  local numTabs = GetNumSpellTabs() or 0
+  for tab = 1, numTabs do
+    local _, _, offset, numSpells = GetSpellTabInfo(tab)
+    offset = offset or 0
+    numSpells = numSpells or 0
+
+    for i = 1, numSpells do
+      local slot = offset + i
+      local spellType = GetSpellBookItemInfo(slot, bookType)
+      if spellType == "SPELL" then
+        local name, subName = GetSpellBookItemName(slot, bookType)
+        if name and name ~= "" then
+          local display = name
+          if subName and subName ~= "" then
+            display = name .. "(" .. subName .. ")"
+          end
+
+          if not seen[display] then
+            seen[display] = true
+            spells[#spells + 1] = display
+          end
+        end
+      end
+    end
+  end
+
+  table.sort(spells)
+  return spells
+end
 
 function SF:CreateOptions()
   if self.optionsFrame then
@@ -32,34 +74,78 @@ function SF:CreateOptions()
     f:StopMovingOrSizing()
     SF:SaveFramePosition(f, SF.db.optionsPosition)
   end)
+  frame:SetScript("OnHide", function()
+    SF:HideSpellSuggestions()
+  end)
+
+  local headerBg = frame:CreateTexture(nil, "BACKGROUND")
+  headerBg:SetPoint("TOPLEFT", frame, "TOPLEFT", 1, -1)
+  headerBg:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -1, -1)
+  headerBg:SetHeight(76)
+  self:SetTextureColor(headerBg, 0.055, 0.062, 0.074, 0.98)
+  frame.headerBg = headerBg
+
+  local contentBg = frame:CreateTexture(nil, "BACKGROUND")
+  contentBg:SetPoint("TOPLEFT", frame, "TOPLEFT", 10, -84)
+  contentBg:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -10, 10)
+  self:SetTextureColor(contentBg, 0.020, 0.023, 0.029, 0.48)
+  frame.contentBg = contentBg
+
+  local divider = frame:CreateTexture(nil, "BORDER")
+  divider:SetPoint("TOPLEFT", frame, "TOPLEFT", 12, -78)
+  divider:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -12, -78)
+  divider:SetHeight(1)
+  self:SetTextureColor(divider, 0.22, 0.26, 0.32, 0.90)
+  frame.divider = divider
 
   local title = frame:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
   title:SetPoint("TOPLEFT", frame, "TOPLEFT", 16, -14)
   title:SetText("SimpleFrames")
   title:SetTextColor(0.88, 0.92, 0.96, 1)
 
+  local subtitle = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+  subtitle:SetPoint("LEFT", title, "RIGHT", 10, 0)
+  subtitle:SetText("Party and raid frames")
+  subtitle:SetTextColor(0.58, 0.66, 0.76, 1)
+  frame.subtitle = subtitle
+
   local close = CreateFrame("Button", nil, frame, "UIPanelCloseButton")
   close:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -4, -4)
 
   local tabs = {
-    { key = "general", label = "General" },
-    { key = "layout", label = "Layout" },
-    { key = "text", label = "Text" },
-    { key = "auras", label = "Auras" },
-    { key = "blizzard", label = "Blizzard UI" },
-    { key = "preview", label = "Preview" },
+    { key = "general", label = "General", width = 62 },
+    { key = "layout", label = "Layout", width = 58 },
+    { key = "text", label = "Text", width = 50 },
+    { key = "auras", label = "Auras", width = 58 },
+    { key = "spells", label = "Spells", width = 62 },
+    { key = "blizzard", label = "Blizzard UI", width = 84 },
+    { key = "preview", label = "Preview", width = 64 },
   }
 
   local lastTab
   for i = 1, #tabs do
-    local tab = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
-    tab:SetSize(i == 5 and 88 or 72, 22)
+    local tab = CreateFrame("Button", nil, frame)
+    tab:SetSize(tabs[i].width or 72, TAB_HEIGHT)
     if lastTab then
       tab:SetPoint("LEFT", lastTab, "RIGHT", 4, 0)
     else
-      tab:SetPoint("TOPLEFT", frame, "TOPLEFT", 14, -46)
+      tab:SetPoint("TOPLEFT", frame, "TOPLEFT", 14, -48)
     end
-    tab:SetText(tabs[i].label)
+
+    local tabBg = tab:CreateTexture(nil, "BACKGROUND")
+    tabBg:SetAllPoints(tab)
+    tab.bg = tabBg
+
+    local tabText = tab:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    tabText:SetPoint("CENTER", tab, "CENTER", 0, 0)
+    tabText:SetText(tabs[i].label)
+    tab.text = tabText
+
+    local highlight = tab:CreateTexture(nil, "HIGHLIGHT")
+    highlight:SetAllPoints(tab)
+    self:SetTextureColor(highlight, 1, 1, 1, 0.07)
+    tab:SetHighlightTexture(highlight)
+
     tab.key = tabs[i].key
     tab:SetScript("OnClick", function(button)
       SF:ShowOptionsTab(button.key)
@@ -78,6 +164,7 @@ function SF:CreateOptions()
   self:BuildLayoutOptions(self.optionPanels.layout)
   self:BuildTextOptions(self.optionPanels.text)
   self:BuildAuraOptions(self.optionPanels.auras)
+  self:BuildSpellOptions(self.optionPanels.spells)
   self:BuildBlizzardOptions(self.optionPanels.blizzard)
   self:BuildPreviewOptions(self.optionPanels.preview)
 
@@ -88,23 +175,36 @@ function SF:TrackOptionControl(control)
   self.optionControls[#self.optionControls + 1] = control
 end
 
+function SF:StyleOptionTab(tab, selected)
+  if not tab then
+    return
+  end
+
+  if selected then
+    self:SetTextureColor(tab.bg, 0.16, 0.20, 0.27, 0.96)
+    tab.text:SetTextColor(0.94, 0.97, 1.00, 1)
+  else
+    self:SetTextureColor(tab.bg, 0.060, 0.070, 0.086, 0.78)
+    tab.text:SetTextColor(0.66, 0.74, 0.84, 1)
+  end
+end
+
 function SF:ShowOptionsTab(key)
   if not self.optionPanels then
     return
   end
 
+  if self.HideSpellSuggestions then
+    self:HideSpellSuggestions()
+  end
+
   for tabKey, panel in pairs(self.optionPanels) do
     if tabKey == key then
       panel:Show()
-      if self.optionTabs[tabKey] then
-        self.optionTabs[tabKey]:Disable()
-      end
     else
       panel:Hide()
-      if self.optionTabs[tabKey] then
-        self.optionTabs[tabKey]:Enable()
-      end
     end
+    self:StyleOptionTab(self.optionTabs[tabKey], tabKey == key)
   end
   self.activeOptionsTab = key
   self:RefreshOptions()
@@ -138,6 +238,13 @@ function SF:CreateSectionTitle(parent, text, x, y)
   title:SetPoint("TOPLEFT", parent, "TOPLEFT", x, y)
   title:SetText(text)
   title:SetTextColor(0.82, 0.88, 0.94, 1)
+
+  local line = parent:CreateTexture(nil, "BACKGROUND")
+  line:SetPoint("LEFT", title, "RIGHT", 8, -1)
+  line:SetPoint("RIGHT", parent, "RIGHT", -4, 0)
+  line:SetHeight(1)
+  self:SetTextureColor(line, 0.18, 0.22, 0.28, 0.75)
+
   return title
 end
 
@@ -185,7 +292,7 @@ function SF:CreateCommandButton(parent, label, x, y, width, onClick, enabledGett
   return button
 end
 
-function SF:CreateEditBox(parent, label, x, y, width, getter, setter)
+function SF:CreateEditBox(parent, label, x, y, width, getter, setter, maxLetters, callbacks)
   self.editBoxCount = (self.editBoxCount or 0) + 1
   local name = "SimpleFramesEditBox" .. self.editBoxCount
 
@@ -197,7 +304,7 @@ function SF:CreateEditBox(parent, label, x, y, width, getter, setter)
   editBox:SetPoint("TOPLEFT", labelText, "BOTTOMLEFT", 5, -6)
   editBox:SetSize(width or 160, 24)
   editBox:SetAutoFocus(false)
-  editBox:SetMaxLetters(32)
+  editBox:SetMaxLetters(maxLetters or 32)
   if editBox.SetTextInsets then
     editBox:SetTextInsets(4, 4, 0, 0)
   end
@@ -207,19 +314,40 @@ function SF:CreateEditBox(parent, label, x, y, width, getter, setter)
       return
     end
     setter(box:GetText() or "")
+    if callbacks and callbacks.onTextChanged then
+      callbacks.onTextChanged(box)
+    end
   end)
 
   editBox:SetScript("OnEnterPressed", function(box)
+    if callbacks and callbacks.onEnterPressed and callbacks.onEnterPressed(box) then
+      return
+    end
     setter(box:GetText() or "")
     box:ClearFocus()
   end)
 
   editBox:SetScript("OnEscapePressed", function(box)
+    if callbacks and callbacks.onEscapePressed then
+      callbacks.onEscapePressed(box)
+    end
     box.refreshing = true
     box:SetText(getter() or "")
     box.refreshing = false
     box:ClearFocus()
   end)
+
+  if callbacks and callbacks.onFocusGained then
+    editBox:SetScript("OnEditFocusGained", function(box)
+      callbacks.onFocusGained(box)
+    end)
+  end
+
+  if callbacks and callbacks.onFocusLost then
+    editBox:SetScript("OnEditFocusLost", function(box)
+      callbacks.onFocusLost(box)
+    end)
+  end
 
   function editBox:Refresh()
     if self:HasFocus() then
@@ -236,6 +364,179 @@ function SF:CreateEditBox(parent, label, x, y, width, getter, setter)
 
   self:TrackOptionControl(editBox)
   return editBox
+end
+
+function SF:GetSpellSuggestionList(refresh)
+  if refresh or not self.spellSuggestionList then
+    self.spellSuggestionList = buildSpellList()
+  end
+  return self.spellSuggestionList
+end
+
+function SF:EnsureSpellSuggestionFrame()
+  if self.spellSuggestionFrame then
+    return self.spellSuggestionFrame
+  end
+
+  local frame = CreateFrame("Frame", "SimpleFramesSpellSuggestions", UIParent, BACKDROP_TEMPLATE)
+  frame:SetFrameStrata("FULLSCREEN_DIALOG")
+  if frame.SetToplevel then
+    frame:SetToplevel(true)
+  end
+  frame:EnableMouse(true)
+  self:ApplyBackdrop(frame, 0.025, 0.028, 0.034, 0.98, 0.32, 0.38, 0.46, 1)
+  frame:Hide()
+
+  frame.rows = {}
+  for i = 1, SPELL_SUGGESTION_ROWS do
+    local row = CreateFrame("Button", nil, frame)
+    row:SetHeight(SPELL_SUGGESTION_ROW_HEIGHT)
+    row:SetPoint("TOPLEFT", frame, "TOPLEFT", 4, -4 - ((i - 1) * SPELL_SUGGESTION_ROW_HEIGHT))
+    row:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -4, -4 - ((i - 1) * SPELL_SUGGESTION_ROW_HEIGHT))
+
+    local highlight = row:CreateTexture(nil, "HIGHLIGHT")
+    highlight:SetAllPoints(row)
+    highlight:SetTexture("Interface\\QuestFrame\\UI-QuestTitleHighlight")
+    highlight:SetBlendMode("ADD")
+
+    local text = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    text:SetPoint("LEFT", row, "LEFT", 4, 0)
+    text:SetPoint("RIGHT", row, "RIGHT", -4, 0)
+    text:SetJustifyH("LEFT")
+    text:SetText("")
+    row.text = text
+
+    row:SetScript("OnClick", function(button)
+      local spell = button.spellText
+      if spell and frame.onPick then
+        frame.onPick(spell)
+      end
+      SF:HideSpellSuggestions()
+    end)
+
+    frame.rows[i] = row
+  end
+
+  self.spellSuggestionFrame = frame
+  return frame
+end
+
+function SF:HideSpellSuggestions()
+  local frame = self.spellSuggestionFrame
+  if not frame then
+    return
+  end
+
+  frame:Hide()
+  frame.owner = nil
+  frame.onPick = nil
+  frame.firstSpell = nil
+end
+
+function SF:HideSpellSuggestionsSoon(owner)
+  if not C_Timer or not C_Timer.After then
+    self:HideSpellSuggestions()
+    return
+  end
+
+  C_Timer.After(0.12, function()
+    local frame = SF.spellSuggestionFrame
+    if not frame or not frame:IsShown() or frame.owner ~= owner then
+      return
+    end
+    if owner and owner.HasFocus and owner:HasFocus() then
+      return
+    end
+    if frame.IsMouseOver and frame:IsMouseOver() then
+      return
+    end
+    SF:HideSpellSuggestions()
+  end)
+end
+
+function SF:ShowSpellSuggestions(owner, text, onPick)
+  if not owner or not owner.HasFocus or not owner:HasFocus() then
+    self:HideSpellSuggestions()
+    return
+  end
+
+  local query = tostring(text or "")
+  query = string.gsub(query, "^%s+", "")
+  query = string.gsub(query, "%s+$", "")
+  if query == "" then
+    self:HideSpellSuggestions()
+    return
+  end
+
+  local lowerQuery = string.lower(query)
+  local spells = self:GetSpellSuggestionList()
+  local matches = {}
+  for i = 1, #spells do
+    local spell = spells[i]
+    local lowerSpell = string.lower(spell)
+    if string.sub(lowerSpell, 1, string.len(lowerQuery)) == lowerQuery then
+      matches[#matches + 1] = spell
+      if #matches >= SPELL_SUGGESTION_ROWS then
+        break
+      end
+    end
+  end
+
+  if #matches < SPELL_SUGGESTION_ROWS then
+    for i = 1, #spells do
+      local spell = spells[i]
+      local lowerSpell = string.lower(spell)
+      if string.sub(lowerSpell, 1, string.len(lowerQuery)) ~= lowerQuery
+        and string.find(lowerSpell, lowerQuery, 1, true) then
+        matches[#matches + 1] = spell
+        if #matches >= SPELL_SUGGESTION_ROWS then
+          break
+        end
+      end
+    end
+  end
+
+  if #matches == 0 then
+    self:HideSpellSuggestions()
+    return
+  end
+
+  local frame = self:EnsureSpellSuggestionFrame()
+  frame.owner = owner
+  frame.onPick = onPick
+  frame.firstSpell = matches[1]
+  frame:ClearAllPoints()
+  frame:SetPoint("TOPLEFT", owner, "BOTTOMLEFT", 0, -4)
+  frame:SetSize(math.max(owner:GetWidth() or 180, 180), (#matches * SPELL_SUGGESTION_ROW_HEIGHT) + 8)
+  if self.optionsFrame then
+    frame:SetFrameLevel((self.optionsFrame:GetFrameLevel() or 0) + 50)
+  end
+
+  for i = 1, SPELL_SUGGESTION_ROWS do
+    local row = frame.rows[i]
+    local spell = matches[i]
+    if spell then
+      row.spellText = spell
+      row.text:SetText(spell)
+      row:Show()
+    else
+      row.spellText = nil
+      row.text:SetText("")
+      row:Hide()
+    end
+  end
+
+  frame:Show()
+end
+
+function SF:AcceptFirstSpellSuggestion(owner)
+  local frame = self.spellSuggestionFrame
+  if frame and frame:IsShown() and frame.owner == owner and frame.firstSpell and frame.onPick then
+    frame.onPick(frame.firstSpell)
+    self:HideSpellSuggestions()
+    return true
+  end
+  return false
 end
 
 function SF:CreateSlider(parent, label, x, y, minValue, maxValue, step, getter, setter, protectedChange)
@@ -840,6 +1141,101 @@ function SF:BuildAuraOptions(panel)
     function(value) SF.db.auras.debuffOffsetY = value end,
     true
   )
+end
+
+function SF:BuildSpellOptions(panel)
+  self:CreateSectionTitle(panel, "Spells", 0, 0)
+
+  self:CreateCheck(panel, "Enable click-casting", 0, -28,
+    function() return SF:EnsureClickCastConfig().enabled end,
+    function(value)
+      SF:EnsureClickCastConfig().enabled = value
+      SF:RequestClickCastRefresh()
+    end,
+    false
+  )
+
+  local desc = panel:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+  desc:SetPoint("TOPLEFT", panel, "TOPLEFT", 0, -66)
+  desc:SetWidth(458)
+  desc:SetJustifyH("LEFT")
+  desc:SetText("Type exact spell names or pick from spellbook matches as you type. Blank left and right clicks do nothing; middle click still targets real units.")
+
+  local rows = {
+    { key = "L", x = 0, y = -120 },
+    { key = "R", x = 240, y = -120 },
+    { key = "SL", x = 0, y = -190 },
+    { key = "SR", x = 240, y = -190 },
+    { key = "AL", x = 0, y = -260 },
+    { key = "AR", x = 240, y = -260 },
+  }
+
+  for i = 1, #rows do
+    local row = rows[i]
+    local key = row.key
+    self:CreateEditBox(panel, self.clickCastBindingLabels[key] or key, row.x, row.y, 180,
+      function() return SF:GetClickCastBinding(key) end,
+      function(value) SF:SetClickCastBinding(key, value) end,
+      64,
+      {
+        onTextChanged = function(box)
+          SF:ShowSpellSuggestions(box, box:GetText(), function(spell)
+            SF:SetClickCastBinding(key, spell)
+            box.refreshing = true
+            box:SetText(spell)
+            box.refreshing = false
+            box:ClearFocus()
+          end)
+        end,
+        onFocusGained = function(box)
+          SF:GetSpellSuggestionList(true)
+          SF:ShowSpellSuggestions(box, box:GetText(), function(spell)
+            SF:SetClickCastBinding(key, spell)
+            box.refreshing = true
+            box:SetText(spell)
+            box.refreshing = false
+            box:ClearFocus()
+          end)
+        end,
+        onFocusLost = function(box)
+          SF:HideSpellSuggestionsSoon(box)
+        end,
+        onEnterPressed = function(box)
+          return SF:AcceptFirstSpellSuggestion(box)
+        end,
+        onEscapePressed = function()
+          SF:HideSpellSuggestions()
+        end,
+      }
+    )
+  end
+
+  local slash = panel:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+  slash:SetPoint("TOPLEFT", panel, "TOPLEFT", 0, -342)
+  slash:SetWidth(458)
+  slash:SetJustifyH("LEFT")
+  slash:SetText("Slash command: /sfr bind L|R|SL|SR|AL|AR <spell name>")
+
+  self:CreateSectionTitle(panel, "Prio Targets", 0, -392)
+
+  self:CreateCheck(panel, "Enable prio targets frame", 0, -420,
+    function() return SF:EnsurePriorityConfig().enabled end,
+    function(value)
+      SF:EnsurePriorityConfig().enabled = value
+      SF:RefreshPriorityFrame()
+    end,
+    false
+  )
+
+  self:CreateCommandButton(panel, "Clear prio targets", 250, -420, 140, function()
+    SF:ClearPriorityTargets()
+  end)
+
+  local prioHelp = panel:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+  prioHelp:SetPoint("TOPLEFT", panel, "TOPLEFT", 0, -464)
+  prioHelp:SetWidth(458)
+  prioHelp:SetJustifyH("LEFT")
+  prioHelp:SetText("Shift + Middle Click a real unit frame to add or remove that unit from the separate Prio targets frame.")
 end
 
 function SF:BuildBlizzardOptions(panel)

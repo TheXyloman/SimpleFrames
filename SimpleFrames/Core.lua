@@ -124,6 +124,10 @@ function SF:ApplyDatabaseState()
   if self.optionsFrame then
     self:RestoreFramePosition(self.optionsFrame, self.db.optionsPosition, self.defaults.optionsPosition)
   end
+  if self.priorityAnchor then
+    self:EnsurePriorityConfig()
+    self:RestoreFramePosition(self.priorityAnchor, self.db.priority.framePosition, self.defaults.priority.framePosition)
+  end
 
   self:ApplyLockState()
   self:RefreshMinimapButton()
@@ -338,6 +342,50 @@ function SF:HandleProfileSlash(command, rest)
   self:Print("/sfr profile save <name>, /sfr profile load <name>, /sfr profile delete <name>, /sfr profiles")
 end
 
+function SF:HandleBindSlash(rest)
+  rest = trimText(rest)
+  local key, spell = string.match(rest, "^(%S+)%s*(.-)$")
+  key = string.upper(trimText(key))
+  spell = trimText(spell)
+
+  if not self.clickCastBindingAttributes or not self.clickCastBindingAttributes[key] then
+    self:Print("use /sfr bind L|R|SL|SR|AL|AR <spell name or blank>")
+    return
+  end
+
+  self:SetClickCastBinding(key, spell)
+  self:RefreshOptions()
+  self:Print(("bound %s to: %s"):format(key, spell ~= "" and spell or "(cleared)"))
+end
+
+function SF:HandlePrioritySlash(rest)
+  rest = trimText(rest)
+  local action = string.lower(rest)
+
+  if action == "clear" or action == "reset" then
+    self:ClearPriorityTargets()
+    return
+  end
+
+  if action == "show" then
+    self:EnsurePriorityConfig().enabled = true
+    self:RefreshPriorityFrame()
+    self:RefreshOptions()
+    self:Print("prio targets enabled")
+    return
+  end
+
+  if action == "hide" then
+    self:EnsurePriorityConfig().enabled = false
+    self:RefreshPriorityFrame()
+    self:RefreshOptions()
+    self:Print("prio targets disabled")
+    return
+  end
+
+  self:Print("/sfr prio clear, /sfr prio show, /sfr prio hide")
+end
+
 function SF:HandleSlash(message)
   local rawMessage = trimText(message)
   message = string.lower(rawMessage)
@@ -351,6 +399,16 @@ function SF:HandleSlash(message)
   first = string.lower(first or "")
   if first == "profile" or first == "profiles" then
     self:HandleProfileSlash(first, rest)
+    return
+  end
+
+  if first == "bind" then
+    self:HandleBindSlash(rest)
+    return
+  end
+
+  if first == "prio" or first == "priority" then
+    self:HandlePrioritySlash(rest)
     return
   end
 
@@ -410,7 +468,7 @@ function SF:HandleSlash(message)
     return
   end
 
-  self:Print("/sfr, /sfr lock, /sfr unlock, /sfr test party, /sfr test raid, /sfr test off, /sfr reset, /sfr profiles")
+  self:Print("/sfr, /sfr lock, /sfr unlock, /sfr bind L|R|SL|SR|AL|AR <spell>, /sfr prio clear, /sfr test party, /sfr test raid, /sfr test off, /sfr reset, /sfr profiles")
 end
 
 function SF:OnRosterEvent()

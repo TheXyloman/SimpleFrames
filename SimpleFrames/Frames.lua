@@ -5,6 +5,13 @@ local HEADER_HEIGHT = 14
 local HANDLE_HEIGHT = 18
 local MOVE_HANDLE_SIZE = 12
 
+local function trimText(text)
+  text = tostring(text or "")
+  text = string.gsub(text, "^%s+", "")
+  text = string.gsub(text, "%s+$", "")
+  return text
+end
+
 local function startAnchorMove(frame)
   if SF.db.locked or (InCombatLockdown and InCombatLockdown()) then
     return
@@ -16,6 +23,20 @@ local function stopAnchorMove(frame)
   local parent = frame:GetParent()
   parent:StopMovingOrSizing()
   SF:SaveFramePosition(parent, SF.db.framePosition)
+end
+
+local function startPriorityMove(frame)
+  if SF.db.locked or (InCombatLockdown and InCombatLockdown()) then
+    return
+  end
+  frame:GetParent():StartMoving()
+end
+
+local function stopPriorityMove(frame)
+  local parent = frame:GetParent()
+  parent:StopMovingOrSizing()
+  SF:EnsurePriorityConfig()
+  SF:SaveFramePosition(parent, SF.db.priority.framePosition)
 end
 
 function SF:CreateFrames()
@@ -88,6 +109,8 @@ function SF:CreateFrames()
     self.buttons[i] = self:CreateUnitButton(i)
   end
 
+  self:CreatePriorityFrame()
+
   self:ApplyLockState()
 end
 
@@ -133,12 +156,13 @@ function SF:CreateAuraIcon(parent)
   return iconFrame
 end
 
-function SF:CreateUnitButton(index)
-  local button = CreateFrame("Button", "SimpleFramesUnitButton" .. index, self.content, "SecureUnitButtonTemplate")
+function SF:CreateUnitButton(index, parent, namePrefix)
+  local button = CreateFrame("Button", (namePrefix or "SimpleFramesUnitButton") .. index, parent or self.content, "SecureUnitButtonTemplate")
   button:RegisterForClicks("AnyUp")
   button:SetAttribute("type1", nil)
   button:SetAttribute("type2", nil)
   button:SetAttribute("type3", "target")
+  self:ClearClickCastAttributes(button)
   button:SetAttribute("unit", nil)
   button:SetSize(self.db.layout.width, self.db.layout.height)
   button:Hide()
@@ -246,6 +270,7 @@ function SF:CreateUnitButton(index)
   end
 
   self:ApplyButtonStyle(button)
+  self:AttachPriorityToggleHooks(button)
   return button
 end
 
@@ -398,6 +423,10 @@ function SF:ApplyLockState()
 
   self:UpdateHandleVisibility()
   self:UpdateAnchorVisibility()
+
+  if self.priorityAnchor and self.priorityAnchor.handle then
+    self.priorityAnchor.handle:EnableMouse(not self.db.locked)
+  end
 end
 
 function SF:EnsurePreviewData()
@@ -613,6 +642,478 @@ function SF:BuildRoster()
   return self:BuildRealRoster()
 end
 
+function SF:EnsurePriorityConfig()
+  if type(self.db.priority) ~= "table" then
+    self.db.priority = {}
+  end
+  self:CopyDefaults(self.defaults.priority, self.db.priority)
+
+  if type(self.db.priority.list) ~= "table" then
+    self.db.priority.list = {}
+  end
+  if type(self.db.priority.order) ~= "table" then
+    self.db.priority.order = {}
+  end
+
+  return self.db.priority
+end
+
+function SF:IsPriorityGuid(guid)
+  if not guid then
+    return false
+  end
+
+  local priority = self:EnsurePriorityConfig()
+  return priority.list and priority.list[guid] ~= nil
+end
+
+function SF:RemovePriorityGuidFromOrder(guid)
+  local priority = self:EnsurePriorityConfig()
+  local order = priority.order
+  for i = #order, 1, -1 do
+    if order[i] == guid then
+      table.remove(order, i)
+    end
+  end
+end
+
+function SF:TogglePriorityByGuid(guid, info)
+  if not guid then
+    return false
+  end
+
+  if InCombatLockdown and InCombatLockdown() then
+    self:Print("cannot change prio targets while in combat")
+    return false
+  end
+
+  local priority = self:EnsurePriorityConfig()
+  local list = priority.list
+  local order = priority.order
+  local added
+
+  if list[guid] then
+    list[guid] = nil
+    self:RemovePriorityGuidFromOrder(guid)
+    added = false
+  else
+    list[guid] = info or { name = guid }
+    order[#order + 1] = guid
+    added = true
+  end
+
+  self:RefreshPriorityFrame()
+  self:RefreshAllUnitData()
+  return true, added
+end
+
+function SF:ClearPriorityTargets()
+  if InCombatLockdown and InCombatLockdown() then
+    self:Print("cannot clear prio targets while in combat")
+    return false
+  end
+
+  local priority = self:EnsurePriorityConfig()
+  self:WipeTable(priority.list)
+  self:WipeTable(priority.order)
+  self:RefreshPriorityFrame()
+  self:RefreshAllUnitData()
+  self:Print("prio targets cleared")
+  return true
+end
+
+function SF:TogglePriorityForButton(button)
+  if not button or not button.unit or (button.entry and button.entry.isDemo) then
+    return false
+  end
+
+  local unit = button.unit
+  if not UnitExists(unit) then
+    return false
+  end
+
+  local guid = UnitGUID(unit)
+  if not guid then
+    return false
+  end
+
+  local name = UnitName(unit) or (button.entry and button.entry.name) or unit
+  local _, classFile = UnitClass(unit)
+  classFile = classFile or (button.entry and button.entry.classFile)
+
+  local ok, added = self:TogglePriorityByGuid(guid, {
+    name = name,
+    classFile = classFile,
+  })
+
+  if ok then
+    self:Print((added and "added prio target: " or "removed prio target: ") .. name)
+  end
+
+  return ok
+end
+
+function SF:AttachPriorityToggleHooks(button)
+  if not button or button.priorityToggleHooked then
+    return
+  end
+
+  button.priorityToggleHooked = true
+  button:HookScript("PreClick", function(clicked, mouseButton)
+    if mouseButton ~= "MiddleButton" or not IsShiftKeyDown or not IsShiftKeyDown() then
+      return
+    end
+
+    if not SF:TogglePriorityForButton(clicked) then
+      return
+    end
+
+    if InCombatLockdown and InCombatLockdown() then
+      return
+    end
+
+    clicked.suppressMiddleClickRestore = true
+    clicked:SetAttribute("type3", "none")
+    clicked:SetAttribute("spell3", nil)
+    clicked:SetAttribute("macrotext3", nil)
+    clicked:SetAttribute("shift-type3", "none")
+    clicked:SetAttribute("shift-spell3", nil)
+    clicked:SetAttribute("shift-macrotext3", nil)
+  end)
+
+  button:HookScript("PostClick", function(clicked, mouseButton)
+    if mouseButton ~= "MiddleButton" or not clicked.suppressMiddleClickRestore then
+      return
+    end
+
+    clicked.suppressMiddleClickRestore = nil
+    if InCombatLockdown and InCombatLockdown() then
+      return
+    end
+
+    if clicked.entry and not clicked.entry.isDemo and clicked.unit then
+      clicked:SetAttribute("type3", "target")
+    else
+      clicked:SetAttribute("type3", nil)
+    end
+    clicked:SetAttribute("shift-type3", nil)
+    clicked:SetAttribute("spell3", nil)
+    clicked:SetAttribute("macrotext3", nil)
+    clicked:SetAttribute("shift-spell3", nil)
+    clicked:SetAttribute("shift-macrotext3", nil)
+  end)
+end
+
+function SF:CreatePriorityFrame()
+  if self.priorityAnchor then
+    return
+  end
+
+  local priority = self:EnsurePriorityConfig()
+  local anchor = CreateFrame("Frame", "SimpleFramesPriorityAnchor", UIParent, BACKDROP_TEMPLATE)
+  anchor:SetClampedToScreen(true)
+  anchor:SetMovable(true)
+  anchor:SetSize(180, HANDLE_HEIGHT + 38)
+  self:ApplyBackdrop(anchor, 0.035, 0.038, 0.045, 0.96, 0.38, 0.32, 0.12, 1)
+  self:RestoreFramePosition(anchor, priority.framePosition, self.defaults.priority.framePosition)
+  anchor:Hide()
+  self.priorityAnchor = anchor
+
+  local handle = CreateFrame("Frame", nil, anchor)
+  handle:SetPoint("TOPLEFT", anchor, "TOPLEFT", 0, 0)
+  handle:SetPoint("TOPRIGHT", anchor, "TOPRIGHT", 0, 0)
+  handle:SetHeight(HANDLE_HEIGHT)
+  handle:EnableMouse(true)
+  handle:RegisterForDrag("LeftButton")
+  handle:SetScript("OnDragStart", startPriorityMove)
+  handle:SetScript("OnDragStop", stopPriorityMove)
+  anchor.handle = handle
+
+  local handleBg = handle:CreateTexture(nil, "BACKGROUND")
+  handleBg:SetAllPoints(handle)
+  self:SetTextureColor(handleBg, 0.15, 0.12, 0.04, 0.94)
+
+  local handleText = handle:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+  handleText:SetPoint("LEFT", handle, "LEFT", 6, 0)
+  handleText:SetText("Prio targets")
+  handleText:SetTextColor(1.00, 0.86, 0.32, 1)
+  handle.text = handleText
+
+  local content = CreateFrame("Frame", nil, anchor)
+  content:SetPoint("TOPLEFT", anchor, "TOPLEFT", 0, -HANDLE_HEIGHT)
+  content:SetSize(160, 38)
+  anchor.content = content
+  self.priorityContent = content
+
+  self.priorityButtons = {}
+  self.priorityUnitToButton = {}
+  for i = 1, 40 do
+    local button = self:CreateUnitButton(i, content, "SimpleFramesPriorityButton")
+    button.isPriorityButton = true
+    button:SetAttribute("type3", nil)
+    button:SetAttribute("unit", nil)
+    button:Hide()
+    self.priorityButtons[i] = button
+  end
+end
+
+function SF:ApplyPriorityLayout(visibleCount)
+  if not self.priorityAnchor or not self.priorityButtons then
+    return
+  end
+
+  local priority = self:EnsurePriorityConfig()
+  local db = self.db.layout
+  local width = db.width
+  local height = db.height
+  local spacing = priority.spacing or db.spacing or 4
+  local columns = self:Clamp(priority.columns or 1, 1, 8)
+
+  if visibleCount < columns then
+    columns = math.max(1, visibleCount)
+  end
+
+  self.priorityContent:ClearAllPoints()
+  self.priorityContent:SetPoint("TOPLEFT", self.priorityAnchor, "TOPLEFT", 0, -HANDLE_HEIGHT)
+
+  for i = 1, 40 do
+    local button = self.priorityButtons[i]
+    self:ApplyButtonStyle(button)
+    button:ClearAllPoints()
+
+    local index = i - 1
+    local col = index % columns
+    local row = math.floor(index / columns)
+    button:SetPoint("TOPLEFT", self.priorityContent, "TOPLEFT", col * (width + spacing), -(row * (height + spacing)))
+  end
+
+  local rows = math.max(1, math.ceil(visibleCount / columns))
+  local totalWidth = (columns * width) + ((columns - 1) * spacing)
+  local totalHeight = (rows * height) + ((rows - 1) * spacing)
+  self.priorityContent:SetSize(totalWidth, totalHeight)
+  self.priorityAnchor:SetSize(math.max(totalWidth, 160), totalHeight + HANDLE_HEIGHT)
+end
+
+function SF:BuildPriorityUnitMap()
+  self.priorityGuidToUnit = self.priorityGuidToUnit or {}
+  self:WipeTable(self.priorityGuidToUnit)
+
+  if not self.unitToButton then
+    return self.priorityGuidToUnit
+  end
+
+  for unit in pairs(self.unitToButton) do
+    if unit and UnitExists(unit) then
+      local guid = UnitGUID(unit)
+      if guid then
+        self.priorityGuidToUnit[guid] = unit
+      end
+    end
+  end
+
+  return self.priorityGuidToUnit
+end
+
+function SF:RefreshPriorityFrame()
+  if InCombatLockdown and InCombatLockdown() then
+    self.pendingPriority = true
+    return
+  end
+
+  self.pendingPriority = false
+  local priority = self:EnsurePriorityConfig()
+  if not self.priorityAnchor then
+    self:CreatePriorityFrame()
+  end
+
+  self.priorityUnitToButton = self.priorityUnitToButton or {}
+  self:WipeTable(self.priorityUnitToButton)
+
+  if not priority.enabled or not priority.showFrame or self.db.preview.mode ~= "off" then
+    self.priorityAnchor:Hide()
+    return
+  end
+
+  local guidToUnit = self:BuildPriorityUnitMap()
+  local shown = 0
+
+  for i = 1, #priority.order do
+    local guid = priority.order[i]
+    local info = priority.list[guid]
+    local unit = guidToUnit[guid]
+    if info and unit and UnitExists(unit) then
+      shown = shown + 1
+      local button = self.priorityButtons[shown]
+      if not button then
+        break
+      end
+
+      button.entry = {
+        unit = unit,
+        name = info.name,
+        classFile = info.classFile,
+        isPriority = true,
+      }
+      button.unit = unit
+      button:SetAttribute("type3", "target")
+      button:SetAttribute("unit", unit)
+      self:ApplyClickCastToButton(button)
+      self.priorityUnitToButton[unit] = button
+      self:UpdateButtonUnit(button, unit)
+      button:Show()
+    end
+  end
+
+  for i = shown + 1, 40 do
+    local button = self.priorityButtons[i]
+    if button then
+      button.entry = nil
+      button.unit = nil
+      button:SetAttribute("type3", nil)
+      button:SetAttribute("unit", nil)
+      self:ApplyClickCastToButton(button)
+      button:Hide()
+    end
+  end
+
+  if shown == 0 then
+    self.priorityAnchor:Hide()
+    return
+  end
+
+  self:ApplyPriorityLayout(shown)
+  self.priorityAnchor:Show()
+end
+
+function SF:EnsureClickCastConfig()
+  if type(self.db.clickCast) ~= "table" then
+    self.db.clickCast = {}
+  end
+  self:CopyDefaults(self.defaults.clickCast, self.db.clickCast)
+
+  if type(self.db.clickCast.bindings) ~= "table" then
+    self.db.clickCast.bindings = {}
+  end
+  self:CopyDefaults(self.defaults.clickCast.bindings, self.db.clickCast.bindings)
+
+  return self.db.clickCast
+end
+
+function SF:GetClickCastBinding(key)
+  key = string.upper(trimText(key))
+  local spec = self.clickCastBindingAttributes and self.clickCastBindingAttributes[key]
+  if not spec then
+    return ""
+  end
+
+  local clickCast = self:EnsureClickCastConfig()
+  return clickCast.bindings[key] or ""
+end
+
+function SF:SetClickCastBinding(key, spell)
+  key = string.upper(trimText(key))
+  if not self.clickCastBindingAttributes or not self.clickCastBindingAttributes[key] then
+    return false
+  end
+
+  local clickCast = self:EnsureClickCastConfig()
+  clickCast.bindings[key] = trimText(spell)
+  self:RequestClickCastRefresh()
+  return true
+end
+
+function SF:ClearClickCastAttribute(button, key)
+  local spec = self.clickCastBindingAttributes and self.clickCastBindingAttributes[key]
+  if not button or not spec then
+    return
+  end
+
+  local prefix = spec.prefix or ""
+  local suffix = tostring(spec.button)
+  button:SetAttribute(prefix .. "type" .. suffix, nil)
+  button:SetAttribute(prefix .. "spell" .. suffix, nil)
+  button:SetAttribute(prefix .. "macrotext" .. suffix, nil)
+end
+
+function SF:ClearClickCastAttributes(button)
+  if not self.clickCastBindingOrder then
+    return
+  end
+
+  for i = 1, #self.clickCastBindingOrder do
+    self:ClearClickCastAttribute(button, self.clickCastBindingOrder[i])
+  end
+end
+
+function SF:SetClickCastAttribute(button, key, spell)
+  local spec = self.clickCastBindingAttributes and self.clickCastBindingAttributes[key]
+  if not button or not spec then
+    return
+  end
+
+  spell = trimText(spell)
+  if spell == "" then
+    self:ClearClickCastAttribute(button, key)
+    return
+  end
+
+  local prefix = spec.prefix or ""
+  local suffix = tostring(spec.button)
+  button:SetAttribute(prefix .. "type" .. suffix, "spell")
+  button:SetAttribute(prefix .. "spell" .. suffix, spell)
+  button:SetAttribute(prefix .. "macrotext" .. suffix, nil)
+end
+
+function SF:ApplyClickCastToButton(button)
+  if not button then
+    return
+  end
+
+  local clickCast = self:EnsureClickCastConfig()
+  local binds = clickCast.bindings or {}
+  local canCast = clickCast.enabled
+    and button.entry
+    and not button.entry.isDemo
+    and button.unit
+    and button.unit ~= ""
+
+  for i = 1, #self.clickCastBindingOrder do
+    local key = self.clickCastBindingOrder[i]
+    self:SetClickCastAttribute(button, key, canCast and binds[key] or nil)
+  end
+end
+
+function SF:ApplyAllClickCastBindings()
+  if InCombatLockdown and InCombatLockdown() then
+    self.pendingClickCast = true
+    return
+  end
+
+  self.pendingClickCast = false
+
+  if not self.buttons then
+    return
+  end
+
+  for i = 1, 40 do
+    self:ApplyClickCastToButton(self.buttons[i])
+  end
+
+  if self.priorityButtons then
+    for i = 1, 40 do
+      self:ApplyClickCastToButton(self.priorityButtons[i])
+    end
+  end
+end
+
+function SF:RequestClickCastRefresh()
+  if InCombatLockdown and InCombatLockdown() then
+    self.pendingClickCast = true
+    return
+  end
+  self:ApplyAllClickCastBindings()
+end
+
 function SF:RequestProtectedRefresh()
   if InCombatLockdown and InCombatLockdown() then
     self.pendingProtected = true
@@ -634,6 +1135,7 @@ function SF:RefreshRoster()
   self.isRaidRoster = isRaid
   self:ApplyRosterToButtons(roster)
   self:LayoutRoster(roster, isRaid)
+  self:RefreshPriorityFrame()
   self:RefreshAllUnitData()
   self:UpdateAnchorVisibility()
 end
@@ -661,6 +1163,8 @@ function SF:ApplyRosterToButtons(roster)
       button:SetAttribute("unit", nil)
       button:Hide()
     end
+
+    self:ApplyClickCastToButton(button)
   end
 end
 
@@ -918,6 +1422,15 @@ function SF:RefreshAllUnitData()
       end
     end
   end
+
+  if self.priorityButtons then
+    for i = 1, 40 do
+      local button = self.priorityButtons[i]
+      if button:IsShown() and button.entry and button.unit then
+        self:UpdateButtonUnit(button, button.unit)
+      end
+    end
+  end
 end
 
 function SF:UpdateUnit(unit)
@@ -928,6 +1441,11 @@ function SF:UpdateUnit(unit)
   local button = self.unitToButton and self.unitToButton[unit]
   if button then
     self:UpdateButtonUnit(button, unit)
+  end
+
+  local priorityButton = self.priorityUnitToButton and self.priorityUnitToButton[unit]
+  if priorityButton then
+    self:UpdateButtonUnit(priorityButton, unit)
   end
 end
 
@@ -948,6 +1466,12 @@ end
 function SF:ApplyPendingProtected()
   if self.pendingProtected then
     self:RefreshRoster()
+  end
+  if self.pendingClickCast then
+    self:ApplyAllClickCastBindings()
+  end
+  if self.pendingPriority then
+    self:RefreshPriorityFrame()
   end
   if self.pendingBlizzard then
     self:ApplyBlizzardFrames()
