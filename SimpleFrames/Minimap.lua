@@ -1,6 +1,7 @@
 local _, SF = ...
 
 local MINIMAP_RADIUS = 80
+local MINIMAP_ICON_TEXTURE = "Interface\\AddOns\\SimpleFrames\\Icon.tga"
 
 function SF:CreateMinimapButton()
   if self.minimapButton or not Minimap then
@@ -25,17 +26,10 @@ function SF:CreateMinimapButton()
   button.background = background
 
   local icon = button:CreateTexture(nil, "ARTWORK")
-  icon:SetSize(19, 19)
+  icon:SetSize(20, 20)
   icon:SetPoint("CENTER", button, "CENTER", 0, 0)
-  icon:SetTexture("Interface\\Buttons\\WHITE8X8")
-  icon:SetVertexColor(0.18, 0.38, 0.76, 1)
+  icon:SetTexture(MINIMAP_ICON_TEXTURE)
   button.icon = icon
-
-  local text = button:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-  text:SetPoint("CENTER", button, "CENTER", 0, 0)
-  text:SetText("SF")
-  text:SetTextColor(1, 1, 1, 1)
-  button.text = text
 
   local overlay = button:CreateTexture(nil, "OVERLAY")
   overlay:SetSize(53, 53)

@@ -4,6 +4,9 @@ local BACKDROP_TEMPLATE = BackdropTemplateMixin and "BackdropTemplate" or nil
 local HEADER_HEIGHT = 14
 local HANDLE_HEIGHT = 18
 local MOVE_HANDLE_SIZE = 12
+local AURA_ICON_MIN_SIZE = 8
+local AURA_ICON_MAX_SIZE = 28
+local AURA_ICON_GAP = 2
 
 local function trimText(text)
   text = tostring(text or "")
@@ -12,31 +15,53 @@ local function trimText(text)
   return text
 end
 
-local function startAnchorMove(frame)
-  if SF.db.locked or (InCombatLockdown and InCombatLockdown()) then
+local function isCombatLocked()
+  return InCombatLockdown and InCombatLockdown()
+end
+
+local function startTrackedMove(frame)
+  local parent = frame and frame:GetParent()
+  if not parent or not SF.db or SF.db.locked or isCombatLocked() then
     return
   end
-  frame:GetParent():StartMoving()
+
+  parent.simpleFramesMoving = true
+  parent.simpleFramesMoveStopPending = nil
+  parent:StartMoving()
+end
+
+local function finishTrackedMove(parent, position)
+  if not parent or not parent.simpleFramesMoving then
+    return
+  end
+
+  if isCombatLocked() then
+    parent.simpleFramesMoveStopPending = true
+    SF.pendingMovementStop = true
+    return
+  end
+
+  parent.simpleFramesMoving = nil
+  parent.simpleFramesMoveStopPending = nil
+  parent:StopMovingOrSizing()
+  SF:SaveFramePosition(parent, position)
+end
+
+local function startAnchorMove(frame)
+  startTrackedMove(frame)
 end
 
 local function stopAnchorMove(frame)
-  local parent = frame:GetParent()
-  parent:StopMovingOrSizing()
-  SF:SaveFramePosition(parent, SF.db.framePosition)
+  finishTrackedMove(frame and frame:GetParent(), SF.db.framePosition)
 end
 
 local function startPriorityMove(frame)
-  if SF.db.locked or (InCombatLockdown and InCombatLockdown()) then
-    return
-  end
-  frame:GetParent():StartMoving()
+  startTrackedMove(frame)
 end
 
 local function stopPriorityMove(frame)
-  local parent = frame:GetParent()
-  parent:StopMovingOrSizing()
   SF:EnsurePriorityConfig()
-  SF:SaveFramePosition(parent, SF.db.priority.framePosition)
+  finishTrackedMove(frame and frame:GetParent(), SF.db.priority.framePosition)
 end
 
 function SF:CreateFrames()
@@ -317,6 +342,14 @@ function SF:ApplyButtonStyle(button)
   local healthFontSize = math.min(self:Clamp(text.healthFontSize, 6, 24), math.max(7, healthHeight - 4))
   local powerFontSize = math.min(self:Clamp(text.powerFontSize, 6, 24), math.max(6, powerHeight - 1))
   local raidIconSize = self:Clamp(db.raidIconSize, 8, 24)
+  local buffSize = self:Clamp(auras.buffSize, AURA_ICON_MIN_SIZE, AURA_ICON_MAX_SIZE)
+  local debuffSize = self:Clamp(auras.debuffSize, AURA_ICON_MIN_SIZE, AURA_ICON_MAX_SIZE)
+  local maxOffsetX = math.max(0, tonumber(width) or 0)
+  local nameOffsetX = self:Clamp(text.nameOffsetX, 0, maxOffsetX)
+  local healthOffsetX = self:Clamp(text.healthOffsetX, 0, maxOffsetX)
+  local powerOffsetX = self:Clamp(text.powerOffsetX, 0, maxOffsetX)
+  local buffOffsetX = self:Clamp(auras.buffOffsetX, 0, maxOffsetX)
+  local debuffOffsetX = self:Clamp(auras.debuffOffsetX, 0, maxOffsetX)
   button.nameText:SetFont(fontPath, nameFontSize, "OUTLINE")
   button.healthText:SetFont(fontPath, healthFontSize, "OUTLINE")
   button.powerText:SetFont(fontPath, powerFontSize, "OUTLINE")
@@ -326,30 +359,32 @@ function SF:ApplyButtonStyle(button)
 
   button.nameText:ClearAllPoints()
   if text.namePosition == "center" then
-    button.nameText:SetPoint("CENTER", button.health, "CENTER", text.nameOffsetX or 0, text.nameOffsetY or 0)
+    button.nameText:SetPoint("CENTER", button.health, "CENTER", nameOffsetX, text.nameOffsetY or 0)
     button.nameText:SetWidth(math.max(60, width - 78))
     button.nameText:SetJustifyH("CENTER")
   else
-    button.nameText:SetPoint("LEFT", button.health, "LEFT", 8 + (text.nameOffsetX or 0), text.nameOffsetY or 0)
+    button.nameText:SetPoint("LEFT", button.health, "LEFT", 8 + nameOffsetX, text.nameOffsetY or 0)
     button.nameText:SetPoint("RIGHT", button.healthText, "LEFT", -5, 0)
     button.nameText:SetJustifyH("LEFT")
   end
 
   button.healthText:ClearAllPoints()
-  button.healthText:SetPoint("RIGHT", button.health, "RIGHT", -5 + (text.healthOffsetX or 0), text.healthOffsetY or 0)
+  button.healthText:SetPoint("RIGHT", button.health, "RIGHT", -5 + healthOffsetX, text.healthOffsetY or 0)
 
   button.powerText:ClearAllPoints()
-  button.powerText:SetPoint("RIGHT", button.power, "RIGHT", -5 + (text.powerOffsetX or 0), text.powerOffsetY or 0)
+  button.powerText:SetPoint("RIGHT", button.power, "RIGHT", -5 + powerOffsetX, text.powerOffsetY or 0)
   self:PositionRaidIcon(button)
 
   for i = 1, 4 do
     local buff = button.buffIcons[i]
+    buff:SetSize(buffSize, buffSize)
     buff:ClearAllPoints()
-    buff:SetPoint("TOPRIGHT", button, "TOPRIGHT", -((i - 1) * 14) - 20 + (auras.buffOffsetX or 0), -2 + (auras.buffOffsetY or 0))
+    buff:SetPoint("TOPRIGHT", button, "TOPRIGHT", -((i - 1) * (buffSize + AURA_ICON_GAP)) - 20 + buffOffsetX, -2 + (auras.buffOffsetY or 0))
 
     local debuff = button.debuffIcons[i]
+    debuff:SetSize(debuffSize, debuffSize)
     debuff:ClearAllPoints()
-    debuff:SetPoint("BOTTOMLEFT", button, "BOTTOMLEFT", 6 + ((i - 1) * 14) + (auras.debuffOffsetX or 0), 2 + (auras.debuffOffsetY or 0))
+    debuff:SetPoint("BOTTOMLEFT", button, "BOTTOMLEFT", 6 + ((i - 1) * (debuffSize + AURA_ICON_GAP)) + debuffOffsetX, 2 + (auras.debuffOffsetY or 0))
   end
 end
 
@@ -1463,7 +1498,25 @@ function SF:UpdateAnchorVisibility()
   end
 end
 
+function SF:ApplyPendingMovementStops()
+  if not self.pendingMovementStop or isCombatLocked() then
+    return
+  end
+
+  if self.anchor and self.anchor.simpleFramesMoveStopPending then
+    finishTrackedMove(self.anchor, self.db.framePosition)
+  end
+
+  if self.priorityAnchor and self.priorityAnchor.simpleFramesMoveStopPending then
+    self:EnsurePriorityConfig()
+    finishTrackedMove(self.priorityAnchor, self.db.priority.framePosition)
+  end
+
+  self.pendingMovementStop = nil
+end
+
 function SF:ApplyPendingProtected()
+  self:ApplyPendingMovementStops()
   if self.pendingProtected then
     self:RefreshRoster()
   end

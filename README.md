@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="Logo.png" alt="SimpleFrames logo" width="180">
+</p>
+
 # SimpleFrames
 
 Standalone Classic Anniversary TBC party and raid frames with secure click-casting, spell suggestions, priority targets, profiles, preview mode, and lightweight native options.
@@ -48,16 +52,18 @@ The addon TOC targets `## Interface: 20505`.
 - Health text modes: percent, raw, raw + percent, or off.
 - Mana/power text modes: percent, raw, raw + percent, or off.
 - Name text can be upper-left or centered.
+- Raid target icon visibility and size are adjustable.
 - Name, health, and power font sizes are adjustable.
-- Name, health, and power text offsets are adjustable.
+- Name, health, and power text offsets are adjustable, with horizontal offsets bounded by the current frame width.
 
 ### Auras And Indicators
 
 - Aura display modes: buffs + debuffs, buffs only, debuffs only, or off.
 - Configurable maximum buff and debuff icon counts.
+- Buff and debuff icon sizes can be adjusted independently.
 - Configurable low-health threshold.
 - Optional stun and silence indicators.
-- Buff and debuff icon positions can be adjusted.
+- Buff and debuff icon positions can be adjusted, with horizontal offsets bounded by the current frame width.
 - Debuff coloring is based on dispel type where available.
 - Stun and silence detection is best-effort from visible auras and curated TBC spell IDs.
 
@@ -127,8 +133,8 @@ The options panel is native UI and has no addon-library dependency.
 
 - **General**: lock state, minimap button, frame/options reset, preview shortcuts, full reset, profiles.
 - **Layout**: size, spacing, columns, unit direction, power bar, raid headers.
-- **Text**: health/power text modes, name placement, raid icons, font sizes, text offsets.
-- **Auras**: aura mode, icon counts, low-health threshold, crowd-control indicators, icon offsets.
+- **Text**: health/power text modes, name placement, raid icons and raid icon size, font sizes, text offsets.
+- **Auras**: aura mode, icon counts, icon sizes, low-health threshold, crowd-control indicators, icon offsets.
 - **Spells**: click-cast bindings, spell suggestions, Prio targets enable/clear controls.
 - **Blizzard UI**: hide or restore Blizzard party and raid frames.
 - **Preview**: party preview, raid preview, preview off, animation toggle.
@@ -151,7 +157,7 @@ The options panel is native UI and has no addon-library dependency.
 
 ## Slash Commands
 
-- `/sfr`, `/sframes`, or `/simpleframes` opens the options panel.
+- `/sfr`, `/sframes`, `/simpleframes`, or `/simpleframe` opens the options panel.
 - `/sfr lock` locks frame movement.
 - `/sfr unlock` unlocks frame movement.
 - `/sfr test party` or `/sfr preview party` starts party preview.
@@ -190,13 +196,19 @@ WoW restricts secure frame changes in combat. SimpleFrames follows those rules.
 - Frame width: `160`
 - Frame height: `38`
 - Power height: `10`
+- Power bar: on
 - Group columns: `5`
 - Unit direction: vertical
 - Raid headers: on
 - Raid target icons: on
+- Raid target icon size: `14`
 - Health text: raw + percent
 - Power text: raw + percent
 - Aura mode: buffs + debuffs
+- Buff icons: `2`
+- Debuff icons: `3`
+- Buff icon size: `12`
+- Debuff icon size: `12`
 - Low health threshold: `15%`
 - Click-casting: enabled, with all spell bindings blank
 - Prio targets: enabled

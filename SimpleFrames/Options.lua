@@ -6,6 +6,12 @@ local PANEL_HEIGHT = 620
 local TAB_HEIGHT = 24
 local SPELL_SUGGESTION_ROWS = 7
 local SPELL_SUGGESTION_ROW_HEIGHT = 20
+local LOGO_TEXTURE = "Interface\\AddOns\\SimpleFrames\\Logo.tga"
+
+local function getFrameXOffsetMax()
+  local width = SF.db and SF.db.layout and tonumber(SF.db.layout.width) or 0
+  return math.max(0, width)
+end
 
 local function buildSpellList()
   local spells = {}
@@ -542,11 +548,30 @@ end
 function SF:CreateSlider(parent, label, x, y, minValue, maxValue, step, getter, setter, protectedChange)
   self.sliderCount = (self.sliderCount or 0) + 1
   local name = "SimpleFramesSlider" .. self.sliderCount
+  step = step or 1
+
+  local function resolveBound(value, fallback)
+    if type(value) == "function" then
+      value = value()
+    end
+    return tonumber(value) or fallback or 0
+  end
+
+  local function getBounds()
+    local min = resolveBound(minValue, 0)
+    local max = resolveBound(maxValue, min)
+    if max < min then
+      max = min
+    end
+    return min, max
+  end
+
+  local initialMin, initialMax = getBounds()
   local slider = CreateFrame("Slider", name, parent, "OptionsSliderTemplate")
   slider:SetPoint("TOPLEFT", parent, "TOPLEFT", x, y)
   slider:SetWidth(180)
-  slider:SetMinMaxValues(minValue, maxValue)
-  slider:SetValueStep(step or 1)
+  slider:SetMinMaxValues(initialMin, initialMax)
+  slider:SetValueStep(step)
   if slider.SetObeyStepOnDrag then
     slider:SetObeyStepOnDrag(true)
   end
@@ -565,8 +590,9 @@ function SF:CreateSlider(parent, label, x, y, minValue, maxValue, step, getter, 
   slider.fill = fill
 
   local function updateFill(s, value)
-    local range = maxValue - minValue
-    local ratio = range > 0 and ((value - minValue) / range) or 0
+    local min, max = getBounds()
+    local range = max - min
+    local ratio = range > 0 and ((value - min) / range) or 0
     if ratio < 0 then
       ratio = 0
     elseif ratio > 1 then
@@ -578,18 +604,32 @@ function SF:CreateSlider(parent, label, x, y, minValue, maxValue, step, getter, 
   local labelText = _G[name .. "Text"]
   local low = _G[name .. "Low"]
   local high = _G[name .. "High"]
-  if low then
-    low:SetText(tostring(minValue))
+
+  local function updateBounds(s)
+    local min, max = getBounds()
+    s:SetMinMaxValues(min, max)
+    if low then
+      low:SetText(tostring(min))
+    end
+    if high then
+      high:SetText(tostring(max))
+    end
+    return min, max
   end
-  if high then
-    high:SetText(tostring(maxValue))
-  end
+
+  updateBounds(slider)
 
   slider:SetScript("OnValueChanged", function(s, value)
     if s.refreshing then
       return
     end
-    local rounded = SF:RoundToStep(value, step or 1)
+    local min, max = getBounds()
+    local rounded = SF:Clamp(SF:RoundToStep(value, step), min, max)
+    if rounded ~= value then
+      s.refreshing = true
+      s:SetValue(rounded)
+      s.refreshing = false
+    end
     setter(rounded)
     if labelText then
       labelText:SetText(label .. ": " .. rounded)
@@ -599,8 +639,9 @@ function SF:CreateSlider(parent, label, x, y, minValue, maxValue, step, getter, 
   end)
 
   function slider:Refresh()
-    local value = getter()
     self.refreshing = true
+    local min, max = updateBounds(self)
+    local value = SF:Clamp(SF:RoundToStep(getter(), step), min, max)
     self:SetValue(value)
     self.refreshing = false
     if labelText then
@@ -919,6 +960,18 @@ function SF:BuildGeneralOptions(panel)
   self.profileStatusText:SetJustifyH("LEFT")
   self.profileStatusText:SetTextColor(0.72, 0.82, 0.96, 1)
   self.profileStatusText:SetText(self.profileStatusMessage or "")
+
+  local logo = panel:CreateTexture(nil, "ARTWORK")
+  logo:SetPoint("TOP", panel, "TOP", 0, -430)
+  logo:SetSize(78, 78)
+  logo:SetTexture(LOGO_TEXTURE)
+  panel.logo = logo
+
+  local link = panel:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+  link:SetPoint("TOP", logo, "BOTTOM", 0, -6)
+  link:SetText("|cff8fbdf7TheXyloman/SimpleFrames|r - github.com/TheXyloman/SimpleFrames")
+  link:SetTextColor(0.72, 0.82, 0.96, 1)
+  panel.logoLink = link
 end
 
 function SF:BuildLayoutOptions(panel)
@@ -1041,9 +1094,9 @@ function SF:BuildTextOptions(panel)
 
   self:CreateSectionTitle(panel, "Positions", 0, -310)
 
-  self:CreateSlider(panel, "Name X", 0, -342, -40, 40, 1,
+  self:CreateSlider(panel, "Name X", 0, -342, 0, getFrameXOffsetMax, 1,
     function() return SF.db.text.nameOffsetX end,
-    function(value) SF.db.text.nameOffsetX = value end,
+    function(value) SF.db.text.nameOffsetX = SF:Clamp(value, 0, getFrameXOffsetMax()) end,
     true
   )
 
@@ -1053,9 +1106,9 @@ function SF:BuildTextOptions(panel)
     true
   )
 
-  self:CreateSlider(panel, "Health X", 0, -402, -40, 40, 1,
+  self:CreateSlider(panel, "Health X", 0, -402, 0, getFrameXOffsetMax, 1,
     function() return SF.db.text.healthOffsetX end,
-    function(value) SF.db.text.healthOffsetX = value end,
+    function(value) SF.db.text.healthOffsetX = SF:Clamp(value, 0, getFrameXOffsetMax()) end,
     true
   )
 
@@ -1065,9 +1118,9 @@ function SF:BuildTextOptions(panel)
     true
   )
 
-  self:CreateSlider(panel, "Mana X", 0, -462, -40, 40, 1,
+  self:CreateSlider(panel, "Mana X", 0, -462, 0, getFrameXOffsetMax, 1,
     function() return SF.db.text.powerOffsetX end,
-    function(value) SF.db.text.powerOffsetX = value end,
+    function(value) SF.db.text.powerOffsetX = SF:Clamp(value, 0, getFrameXOffsetMax()) end,
     true
   )
 
@@ -1110,33 +1163,45 @@ function SF:BuildAuraOptions(panel)
     false
   )
 
-  self:CreateCheck(panel, "Show stun and silence indicators", 0, -170,
+  self:CreateSlider(panel, "Buff size", 0, -170, 8, 28, 1,
+    function() return SF.db.auras.buffSize end,
+    function(value) SF.db.auras.buffSize = value end,
+    true
+  )
+
+  self:CreateSlider(panel, "Debuff size", 250, -170, 8, 28, 1,
+    function() return SF.db.auras.debuffSize end,
+    function(value) SF.db.auras.debuffSize = value end,
+    true
+  )
+
+  self:CreateCheck(panel, "Show stun and silence indicators", 0, -232,
     function() return SF.db.auras.showCrowdControl end,
     function(value) SF.db.auras.showCrowdControl = value end,
     false
   )
 
-  self:CreateSectionTitle(panel, "Icon positions", 0, -222)
+  self:CreateSectionTitle(panel, "Icon positions", 0, -284)
 
-  self:CreateSlider(panel, "Buff X", 0, -254, -40, 40, 1,
+  self:CreateSlider(panel, "Buff X", 0, -316, 0, getFrameXOffsetMax, 1,
     function() return SF.db.auras.buffOffsetX end,
-    function(value) SF.db.auras.buffOffsetX = value end,
+    function(value) SF.db.auras.buffOffsetX = SF:Clamp(value, 0, getFrameXOffsetMax()) end,
     true
   )
 
-  self:CreateSlider(panel, "Buff Y", 250, -254, -20, 20, 1,
+  self:CreateSlider(panel, "Buff Y", 250, -316, -20, 20, 1,
     function() return SF.db.auras.buffOffsetY end,
     function(value) SF.db.auras.buffOffsetY = value end,
     true
   )
 
-  self:CreateSlider(panel, "Debuff X", 0, -314, -40, 40, 1,
+  self:CreateSlider(panel, "Debuff X", 0, -376, 0, getFrameXOffsetMax, 1,
     function() return SF.db.auras.debuffOffsetX end,
-    function(value) SF.db.auras.debuffOffsetX = value end,
+    function(value) SF.db.auras.debuffOffsetX = SF:Clamp(value, 0, getFrameXOffsetMax()) end,
     true
   )
 
-  self:CreateSlider(panel, "Debuff Y", 250, -314, -20, 20, 1,
+  self:CreateSlider(panel, "Debuff Y", 250, -376, -20, 20, 1,
     function() return SF.db.auras.debuffOffsetY end,
     function(value) SF.db.auras.debuffOffsetY = value end,
     true
