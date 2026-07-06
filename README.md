@@ -44,8 +44,10 @@ The addon TOC targets `## Interface: 20505`.
 - Raid groups can be arranged across configurable group columns.
 - Unit direction can be vertical or horizontal.
 - Raid group headers can be shown or hidden.
+- Assigned Tank, DPS, and Healer roles show as icons to the left of party and raid frames when role data is available.
+- Raid subgroups with assigned role data are split under their group header into Tank, DPS, Healer, and Other sections.
 - Frames can be locked or unlocked.
-- When unlocked, the main frame and Prio targets frame can be dragged.
+- When unlocked, the main frame, Prio targets frame, and Pets frame can be dragged.
 
 ### Text
 
@@ -70,6 +72,7 @@ The addon TOC targets `## Interface: 20505`.
 ### Spells And Click-Casting
 
 - Native click-casting is built into SimpleFrames without external libraries.
+- Click-casting can be enabled or disabled from the **Spells** options tab.
 - Supported bind keys:
   - `L`: Left click
   - `R`: Right click
@@ -80,7 +83,8 @@ The addon TOC targets `## Interface: 20505`.
 - Bindings can be set from the **Spells** options tab or with `/sfr bind`.
 - The **Spells** tab shows matching spellbook spells as you type.
 - Click a spell suggestion or press Enter to pick the first visible match.
-- Blank left and right click bindings do nothing, preserving the default behavior.
+- If your character knows a resurrection spell, click-casts automatically use it on dead party or raid members. Blank left click also resurrects dead units.
+- Blank right click bindings do nothing. Blank left click does nothing on living units, preserving default behavior.
 - Middle click remains reserved for targeting.
 - Spell binding changes are deferred while in combat.
 
@@ -101,11 +105,19 @@ Examples:
 - Prio targets are saved in the active profile and only show while those units are in the current party or raid.
 - Priority changes are blocked while in combat when they would require protected updates.
 
+### Pet Frame
+
+- Party and raid pets appear in a separate **Pets** frame when pet units exist.
+- The frame supports the player's pet, party pets, raid pets, and summoned demons through native WoW pet unit IDs.
+- Pet buttons use the same click-cast bindings as the main frames.
+- The frame has its own saved position and can be dragged by its title while SimpleFrames is unlocked.
+- Pet frame visibility and column count are available from the **Layout** options tab.
+
 ### Profiles
 
 - Active settings are saved per character in `SimpleFramesDB`.
 - Reusable profiles are saved account-wide in `SimpleFramesProfilesDB`.
-- Profiles include layout, text, aura, spell, prio target, minimap, Blizzard UI, and frame position settings.
+- Profiles include layout, text, aura, spell, pet frame, prio target, minimap, Blizzard UI, and frame position settings.
 - Preview mode is not saved as active when capturing a profile.
 
 ### Preview Mode
@@ -132,10 +144,10 @@ Examples:
 The options panel is native UI and has no addon-library dependency.
 
 - **General**: lock state, minimap button, frame/options reset, preview shortcuts, full reset, profiles.
-- **Layout**: size, spacing, columns, unit direction, power bar, raid headers.
+- **Layout**: size, spacing, columns, unit direction, power bar, raid headers, pet frame controls.
 - **Text**: health/power text modes, name placement, raid icons and raid icon size, font sizes, text offsets.
 - **Auras**: aura mode, icon counts, icon sizes, low-health threshold, crowd-control indicators, icon offsets.
-- **Spells**: click-cast bindings, spell suggestions, Prio targets enable/clear controls.
+- **Spells**: click-cast enable toggle, bindings, spell suggestions, Prio targets enable/clear controls.
 - **Blizzard UI**: hide or restore Blizzard party and raid frames.
 - **Preview**: party preview, raid preview, preview off, animation toggle.
 
@@ -158,6 +170,7 @@ The options panel is native UI and has no addon-library dependency.
 ## Slash Commands
 
 - `/sfr`, `/sframes`, `/simpleframes`, or `/simpleframe` opens the options panel.
+- `/sfr options` or `/sfr config` also opens the options panel.
 - `/sfr lock` locks frame movement.
 - `/sfr unlock` unlocks frame movement.
 - `/sfr test party` or `/sfr preview party` starts party preview.
@@ -167,13 +180,14 @@ The options panel is native UI and has no addon-library dependency.
 - `/sfr hideblizzard` hides Blizzard party and raid frames.
 - `/sfr showblizzard` restores Blizzard party and raid frames.
 - `/sfr bind L|R|SL|SR|AL|AR <spell>` sets or clears a click-cast spell.
-- `/sfr prio clear` clears the Prio targets frame.
+- `/sfr prio clear` or `/sfr prio reset` clears the Prio targets frame.
 - `/sfr prio show` enables the Prio targets frame.
 - `/sfr prio hide` disables the Prio targets frame.
+- `/sfr priority ...` works as an alias for `/sfr prio ...`.
 - `/sfr profiles` lists saved account-wide profiles.
 - `/sfr profile save <name>` saves the current settings as a reusable profile.
 - `/sfr profile load <name>` loads a saved profile on the current character.
-- `/sfr profile delete <name>` deletes a saved profile.
+- `/sfr profile delete <name>` or `/sfr profile remove <name>` deletes a saved profile.
 
 `/sf` is used by some world-buff/Songflower addons. SimpleFrames only registers `/sf` if it is not already taken, so `/sfr` is the reliable short command.
 
@@ -185,6 +199,7 @@ WoW restricts secure frame changes in combat. SimpleFrames follows those rules.
 - Click-cast binding changes are queued until combat ends.
 - Prio target display refreshes are queued when protected updates are required.
 - Adding, removing, or clearing prio targets is blocked while in combat.
+- Pet frame roster refreshes are queued until combat ends.
 
 ## Saved Variables
 
@@ -210,6 +225,8 @@ WoW restricts secure frame changes in combat. SimpleFrames follows those rules.
 - Buff icon size: `12`
 - Debuff icon size: `12`
 - Low health threshold: `15%`
-- Click-casting: enabled, with all spell bindings blank
+- Click-casting: enabled, with all spell bindings blank; left click auto-resurrects dead units if you know a resurrection spell
+- Pet frame: enabled, one column
 - Prio targets: enabled
+- Minimap button: shown
 - Hide Blizzard frames: enabled

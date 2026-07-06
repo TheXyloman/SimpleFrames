@@ -1027,6 +1027,20 @@ function SF:BuildLayoutOptions(panel)
     function(value) SF.db.layout.showRaidHeaders = value end,
     true
   )
+
+  self:CreateSectionTitle(panel, "Pet Frame", 0, -304)
+
+  self:CreateCheck(panel, "Show separate pet frame", 0, -334,
+    function() return SF:EnsurePetConfig().enabled end,
+    function(value) SF:EnsurePetConfig().enabled = value end,
+    true
+  )
+
+  self:CreateSlider(panel, "Pet columns", 250, -326, 1, 8, 1,
+    function() return SF:EnsurePetConfig().columns end,
+    function(value) SF:EnsurePetConfig().columns = value end,
+    true
+  )
 end
 
 function SF:BuildTextOptions(panel)
@@ -1224,7 +1238,7 @@ function SF:BuildSpellOptions(panel)
   desc:SetPoint("TOPLEFT", panel, "TOPLEFT", 0, -66)
   desc:SetWidth(458)
   desc:SetJustifyH("LEFT")
-  desc:SetText("Type exact spell names or pick from spellbook matches as you type. Blank left and right clicks do nothing; middle click still targets real units.")
+  desc:SetText("Type exact spell names or pick from spellbook matches as you type. Dead units use your resurrection spell automatically; middle click still targets real units.")
 
   local rows = {
     { key = "L", x = 0, y = -120 },

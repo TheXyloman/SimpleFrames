@@ -88,6 +88,18 @@ SF.defaults = {
     list = {},
     order = {},
   },
+  pets = {
+    enabled = true,
+    showFrame = true,
+    framePosition = {
+      point = "CENTER",
+      relativePoint = "CENTER",
+      x = 240,
+      y = 40,
+    },
+    columns = 1,
+    spacing = 4,
+  },
   minimap = {
     show = true,
     angle = 225,
@@ -119,6 +131,13 @@ SF.clickCastBindingAttributes = {
   SR = { button = 2, prefix = "shift-" },
   AL = { button = 1, prefix = "alt-" },
   AR = { button = 2, prefix = "alt-" },
+}
+
+SF.resurrectionSpells = {
+  PRIEST = { "Resurrection" },
+  PALADIN = { "Redemption" },
+  SHAMAN = { "Ancestral Spirit" },
+  DRUID = { "Revive", "Rebirth" },
 }
 
 SF.classOrder = {

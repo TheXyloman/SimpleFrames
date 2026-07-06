@@ -128,6 +128,10 @@ function SF:ApplyDatabaseState()
     self:EnsurePriorityConfig()
     self:RestoreFramePosition(self.priorityAnchor, self.db.priority.framePosition, self.defaults.priority.framePosition)
   end
+  if self.petAnchor then
+    self:EnsurePetConfig()
+    self:RestoreFramePosition(self.petAnchor, self.db.pets.framePosition, self.defaults.pets.framePosition)
+  end
 
   self:ApplyLockState()
   self:RefreshMinimapButton()
@@ -247,9 +251,23 @@ function SF:RegisterRuntimeEvents()
   frame:RegisterEvent("UNIT_AURA")
   frame:RegisterEvent("UNIT_NAME_UPDATE")
   frame:RegisterEvent("UNIT_CONNECTION")
+  frame:RegisterEvent("UNIT_PET")
   frame:RegisterEvent("RAID_TARGET_UPDATE")
+  frame:RegisterEvent("SPELLS_CHANGED")
   pcall(function()
     frame:RegisterEvent("RAID_ROSTER_UPDATE")
+  end)
+  pcall(function()
+    frame:RegisterEvent("PLAYER_ROLES_ASSIGNED")
+  end)
+  pcall(function()
+    frame:RegisterEvent("ROLE_CHANGED_INFORM")
+  end)
+  pcall(function()
+    frame:RegisterEvent("LFG_ROLE_UPDATE")
+  end)
+  pcall(function()
+    frame:RegisterEvent("LEARNED_SPELL_IN_TAB")
   end)
 end
 
@@ -491,7 +509,11 @@ function SF:OnEvent(event, ...)
     return
   end
 
-  if event == "GROUP_ROSTER_UPDATE" or event == "RAID_ROSTER_UPDATE" then
+  if event == "GROUP_ROSTER_UPDATE"
+    or event == "RAID_ROSTER_UPDATE"
+    or event == "PLAYER_ROLES_ASSIGNED"
+    or event == "ROLE_CHANGED_INFORM"
+    or event == "LFG_ROLE_UPDATE" then
     self:OnRosterEvent()
     return
   end
@@ -503,6 +525,17 @@ function SF:OnEvent(event, ...)
 
   if event == "RAID_TARGET_UPDATE" then
     self:RefreshAllUnitData()
+    return
+  end
+
+  if event == "UNIT_PET" then
+    self:RequestPetFrameRefresh()
+    return
+  end
+
+  if event == "SPELLS_CHANGED" or event == "LEARNED_SPELL_IN_TAB" then
+    self:ClearResurrectionSpellCache()
+    self:RequestClickCastRefresh()
     return
   end
 

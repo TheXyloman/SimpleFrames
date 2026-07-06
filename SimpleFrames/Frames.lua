@@ -7,6 +7,29 @@ local MOVE_HANDLE_SIZE = 12
 local AURA_ICON_MIN_SIZE = 8
 local AURA_ICON_MAX_SIZE = 28
 local AURA_ICON_GAP = 2
+local ROLE_ICON_SIZE = 14
+local ROLE_ICON_GAP = 4
+local ROLE_HEADER_HEIGHT = 12
+local ROLE_TEXTURE = "Interface\\LFGFrame\\UI-LFG-ICON-ROLES"
+
+local ROLE_LAYOUT_ORDER = { "TANK", "DAMAGER", "HEALER", "NONE" }
+local ROLE_LABELS = {
+  TANK = "Tank",
+  DAMAGER = "DPS",
+  HEALER = "Healer",
+  NONE = "Other",
+}
+local ROLE_COLORS = {
+  TANK = { r = 0.45, g = 0.72, b = 1.00 },
+  DAMAGER = { r = 1.00, g = 0.74, b = 0.32 },
+  HEALER = { r = 0.36, g = 1.00, b = 0.52 },
+  NONE = { r = 0.58, g = 0.62, b = 0.68 },
+}
+local ROLE_TEX_COORDS = {
+  TANK = { 0.00, 0.25, 0.00, 0.25 },
+  HEALER = { 0.25, 0.50, 0.00, 0.25 },
+  DAMAGER = { 0.50, 0.75, 0.00, 0.25 },
+}
 
 local function trimText(text)
   text = tostring(text or "")
@@ -62,6 +85,15 @@ end
 local function stopPriorityMove(frame)
   SF:EnsurePriorityConfig()
   finishTrackedMove(frame and frame:GetParent(), SF.db.priority.framePosition)
+end
+
+local function startPetMove(frame)
+  startTrackedMove(frame)
+end
+
+local function stopPetMove(frame)
+  SF:EnsurePetConfig()
+  finishTrackedMove(frame and frame:GetParent(), SF.db.pets.framePosition)
 end
 
 function SF:CreateFrames()
@@ -128,6 +160,15 @@ function SF:CreateFrames()
     self.headers[i] = self:CreateGroupHeader(i)
   end
 
+  self.roleHeaders = {}
+  for subgroup = 1, 8 do
+    self.roleHeaders[subgroup] = {}
+    for i = 1, #ROLE_LAYOUT_ORDER do
+      local role = ROLE_LAYOUT_ORDER[i]
+      self.roleHeaders[subgroup][role] = self:CreateRoleHeader(role)
+    end
+  end
+
   self.buttons = {}
   self.unitToButton = {}
   for i = 1, 40 do
@@ -135,6 +176,7 @@ function SF:CreateFrames()
   end
 
   self:CreatePriorityFrame()
+  self:CreatePetFrame()
 
   self:ApplyLockState()
 end
@@ -155,6 +197,30 @@ function SF:CreateGroupHeader(index)
   text:SetTextColor(0.78, 0.82, 0.88, 1)
   header.text = text
 
+  return header
+end
+
+function SF:CreateRoleHeader(role)
+  local header = CreateFrame("Frame", nil, self.content)
+  header:SetSize(self.db.layout.width, ROLE_HEADER_HEIGHT)
+  header:Hide()
+  header.role = role
+
+  local bg = header:CreateTexture(nil, "BACKGROUND")
+  bg:SetAllPoints(header)
+  header.bg = bg
+
+  local icon = header:CreateTexture(nil, "ARTWORK")
+  icon:SetSize(10, 10)
+  icon:SetPoint("LEFT", header, "LEFT", 4, 0)
+  header.icon = icon
+
+  local text = header:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+  text:SetPoint("LEFT", header, "LEFT", role == "NONE" and 4 or 18, 0)
+  text:SetText(ROLE_LABELS[role] or role)
+  header.text = text
+
+  self:ApplyRoleHeaderStyle(header, role)
   return header
 end
 
@@ -231,6 +297,11 @@ function SF:CreateUnitButton(index, parent, namePrefix)
   classStrip:SetWidth(4)
   self:SetTextureColor(classStrip, 0.55, 0.58, 0.62, 1)
   button.classStrip = classStrip
+
+  local roleIcon = overlay:CreateTexture(nil, "OVERLAY")
+  roleIcon:SetSize(ROLE_ICON_SIZE, ROLE_ICON_SIZE)
+  roleIcon:Hide()
+  button.roleIcon = roleIcon
 
   local lowHealth = overlay:CreateTexture(nil, "OVERLAY")
   lowHealth:SetAllPoints(button)
@@ -373,6 +444,7 @@ function SF:ApplyButtonStyle(button)
 
   button.powerText:ClearAllPoints()
   button.powerText:SetPoint("RIGHT", button.power, "RIGHT", -5 + powerOffsetX, text.powerOffsetY or 0)
+  self:PositionRoleIcon(button)
   self:PositionRaidIcon(button)
 
   for i = 1, 4 do
@@ -386,6 +458,103 @@ function SF:ApplyButtonStyle(button)
     debuff:ClearAllPoints()
     debuff:SetPoint("BOTTOMLEFT", button, "BOTTOMLEFT", 6 + ((i - 1) * (debuffSize + AURA_ICON_GAP)) + debuffOffsetX, 2 + (auras.debuffOffsetY or 0))
   end
+end
+
+function SF:NormalizeRole(role)
+  if not role then
+    return nil
+  end
+
+  role = string.upper(tostring(role))
+  if role == "TANK" or role == "MAINTANK" then
+    return "TANK"
+  end
+  if role == "DAMAGER" or role == "DPS" then
+    return "DAMAGER"
+  end
+  if role == "HEALER" then
+    return "HEALER"
+  end
+  return nil
+end
+
+function SF:GetUnitRole(unit, rosterRole)
+  local role = self:NormalizeRole(rosterRole)
+  if role then
+    return role
+  end
+
+  if UnitGroupRolesAssigned and unit then
+    role = self:NormalizeRole(UnitGroupRolesAssigned(unit))
+    if role then
+      return role
+    end
+  end
+
+  if GetPartyAssignment and unit and GetPartyAssignment("MAINTANK", unit) then
+    return "TANK"
+  end
+
+  return nil
+end
+
+function SF:SetRoleIconTexture(texture, role)
+  if not texture then
+    return false
+  end
+
+  role = self:NormalizeRole(role)
+  local coords = role and ROLE_TEX_COORDS[role]
+  if not coords then
+    texture:Hide()
+    return false
+  end
+
+  texture:SetTexture(ROLE_TEXTURE)
+  texture:SetTexCoord(coords[1], coords[2], coords[3], coords[4])
+  texture:Show()
+  return true
+end
+
+function SF:PositionRoleIcon(button)
+  if not button or not button.roleIcon then
+    return
+  end
+
+  button.roleIcon:SetSize(ROLE_ICON_SIZE, ROLE_ICON_SIZE)
+  button.roleIcon:ClearAllPoints()
+  button.roleIcon:SetPoint("RIGHT", button, "LEFT", -ROLE_ICON_GAP, 0)
+end
+
+function SF:UpdateRoleIcon(button, role)
+  if not button or not button.roleIcon then
+    return
+  end
+
+  if button.isPetButton or button.isPriorityButton then
+    button.roleIcon:Hide()
+    return
+  end
+
+  self:PositionRoleIcon(button)
+  self:SetRoleIconTexture(button.roleIcon, role)
+end
+
+function SF:ApplyRoleHeaderStyle(header, role)
+  if not header then
+    return
+  end
+
+  role = self:NormalizeRole(role) or "NONE"
+  local color = ROLE_COLORS[role] or ROLE_COLORS.NONE
+  if header.bg then
+    self:SetTextureColor(header.bg, color.r * 0.16, color.g * 0.16, color.b * 0.16, 0.88)
+  end
+  if header.text then
+    header.text:SetText(ROLE_LABELS[role] or role)
+    header.text:SetTextColor(color.r, color.g, color.b, 1)
+  end
+  self:SetRoleIconTexture(header.icon, role)
 end
 
 function SF:PositionRaidIcon(button)
@@ -462,6 +631,9 @@ function SF:ApplyLockState()
   if self.priorityAnchor and self.priorityAnchor.handle then
     self.priorityAnchor.handle:EnableMouse(not self.db.locked)
   end
+  if self.petAnchor and self.petAnchor.handle then
+    self.petAnchor.handle:EnableMouse(not self.db.locked)
+  end
 end
 
 function SF:EnsurePreviewData()
@@ -471,6 +643,7 @@ function SF:EnsurePreviewData()
 
   self.previewData = {}
   local debuffs = { nil, "Magic", nil, "Poison", nil, "Curse", nil, "Disease" }
+  local rolePattern = { "TANK", "DAMAGER", "DAMAGER", "DAMAGER", "HEALER" }
   for i = 1, 40 do
     local classFile = self.classOrder[((i - 1) % #self.classOrder) + 1]
     local name = "Demo" .. string.format("%02d", i)
@@ -499,6 +672,7 @@ function SF:EnsurePreviewData()
       connected = i ~= 29,
       dead = i == 34,
       debuffType = debuffs[((i - 1) % #debuffs) + 1],
+      role = rolePattern[((i - 1) % #rolePattern) + 1],
       stunned = i == 9 or i == 22,
       silenced = i == 12 or i == 31,
       raidIcon = (i == 2 or i == 18) and 8 or (i == 7 and 4 or nil),
@@ -608,12 +782,16 @@ function SF:BuildRealRoster()
     for i = 1, count do
       local unit = "raid" .. i
       if UnitExists(unit) then
-        local name, subgroup, classFile
+        local name, subgroup, classFile, role
         if GetRaidRosterInfo then
-          local rosterName, _, rosterSubgroup, _, _, rosterClassFile = GetRaidRosterInfo(i)
+          local rosterName, _, rosterSubgroup, _, _, rosterClassFile, _, _, _, rosterRole, _, combatRole = GetRaidRosterInfo(i)
           name = rosterName
           subgroup = rosterSubgroup
           classFile = rosterClassFile
+          role = self:GetUnitRole(unit, combatRole)
+          if not role then
+            role = self:GetUnitRole(unit, rosterRole)
+          end
         end
         if not name then
           name = UnitName(unit)
@@ -622,11 +800,15 @@ function SF:BuildRealRoster()
           local _, detected = UnitClass(unit)
           classFile = detected
         end
+        if not role then
+          role = self:GetUnitRole(unit)
+        end
         roster[#roster + 1] = {
           unit = unit,
           name = name,
           classFile = classFile,
           subgroup = subgroup or math.floor((i - 1) / 5) + 1,
+          role = role,
           raidIndex = i,
           isPlayer = UnitIsUnit and UnitIsUnit(unit, "player"),
         }
@@ -641,6 +823,7 @@ function SF:BuildRealRoster()
       name = UnitName("player"),
       classFile = select(2, UnitClass("player")),
       subgroup = 1,
+      role = self:GetUnitRole("player"),
       isPlayer = true,
     }
 
@@ -653,6 +836,7 @@ function SF:BuildRealRoster()
           name = UnitName(unit),
           classFile = select(2, UnitClass(unit)),
           subgroup = 1,
+          role = self:GetUnitRole(unit),
           isPlayer = false,
         }
       end
@@ -663,6 +847,7 @@ function SF:BuildRealRoster()
       name = UnitName("player"),
       classFile = select(2, UnitClass("player")),
       subgroup = 1,
+      role = self:GetUnitRole("player"),
       isPlayer = true,
     }
   end
@@ -691,6 +876,14 @@ function SF:EnsurePriorityConfig()
   end
 
   return self.db.priority
+end
+
+function SF:EnsurePetConfig()
+  if type(self.db.pets) ~= "table" then
+    self.db.pets = {}
+  end
+  self:CopyDefaults(self.defaults.pets, self.db.pets)
+  return self.db.pets
 end
 
 function SF:IsPriorityGuid(guid)
@@ -758,7 +951,7 @@ function SF:ClearPriorityTargets()
 end
 
 function SF:TogglePriorityForButton(button)
-  if not button or not button.unit or (button.entry and button.entry.isDemo) then
+  if not button or button.isPetButton or not button.unit or (button.entry and button.entry.isDemo) then
     return false
   end
 
@@ -837,6 +1030,239 @@ function SF:AttachPriorityToggleHooks(button)
     clicked:SetAttribute("shift-spell3", nil)
     clicked:SetAttribute("shift-macrotext3", nil)
   end)
+end
+
+function SF:CreatePetFrame()
+  if self.petAnchor then
+    return
+  end
+
+  local pets = self:EnsurePetConfig()
+  local anchor = CreateFrame("Frame", "SimpleFramesPetAnchor", UIParent, BACKDROP_TEMPLATE)
+  anchor:SetClampedToScreen(true)
+  anchor:SetMovable(true)
+  anchor:SetSize(180, HANDLE_HEIGHT + 38)
+  self:ApplyBackdrop(anchor, 0.035, 0.038, 0.045, 0.96, 0.12, 0.30, 0.18, 1)
+  self:RestoreFramePosition(anchor, pets.framePosition, self.defaults.pets.framePosition)
+  anchor:Hide()
+  self.petAnchor = anchor
+
+  local handle = CreateFrame("Frame", nil, anchor)
+  handle:SetPoint("TOPLEFT", anchor, "TOPLEFT", 0, 0)
+  handle:SetPoint("TOPRIGHT", anchor, "TOPRIGHT", 0, 0)
+  handle:SetHeight(HANDLE_HEIGHT)
+  handle:EnableMouse(true)
+  handle:RegisterForDrag("LeftButton")
+  handle:SetScript("OnDragStart", startPetMove)
+  handle:SetScript("OnDragStop", stopPetMove)
+  anchor.handle = handle
+
+  local handleBg = handle:CreateTexture(nil, "BACKGROUND")
+  handleBg:SetAllPoints(handle)
+  self:SetTextureColor(handleBg, 0.04, 0.14, 0.08, 0.94)
+
+  local handleText = handle:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+  handleText:SetPoint("LEFT", handle, "LEFT", 6, 0)
+  handleText:SetText("Pets")
+  handleText:SetTextColor(0.55, 1.00, 0.68, 1)
+  handle.text = handleText
+
+  local content = CreateFrame("Frame", nil, anchor)
+  content:SetPoint("TOPLEFT", anchor, "TOPLEFT", 0, -HANDLE_HEIGHT)
+  content:SetSize(160, 38)
+  anchor.content = content
+  self.petContent = content
+
+  self.petButtons = {}
+  self.petUnitToButton = {}
+  for i = 1, 40 do
+    local button = self:CreateUnitButton(i, content, "SimpleFramesPetButton")
+    button.isPetButton = true
+    button:SetAttribute("type3", nil)
+    button:SetAttribute("unit", nil)
+    button:Hide()
+    self.petButtons[i] = button
+  end
+end
+
+function SF:ApplyPetLayout(visibleCount)
+  if not self.petAnchor or not self.petButtons then
+    return
+  end
+
+  local pets = self:EnsurePetConfig()
+  local db = self.db.layout
+  local width = db.width
+  local height = db.height
+  local spacing = pets.spacing or db.spacing or 4
+  local columns = self:Clamp(pets.columns or 1, 1, 8)
+
+  if visibleCount < columns then
+    columns = math.max(1, visibleCount)
+  end
+
+  self.petContent:ClearAllPoints()
+  self.petContent:SetPoint("TOPLEFT", self.petAnchor, "TOPLEFT", 0, -HANDLE_HEIGHT)
+
+  for i = 1, 40 do
+    local button = self.petButtons[i]
+    self:ApplyButtonStyle(button)
+    button:ClearAllPoints()
+
+    local index = i - 1
+    local col = index % columns
+    local row = math.floor(index / columns)
+    button:SetPoint("TOPLEFT", self.petContent, "TOPLEFT", col * (width + spacing), -(row * (height + spacing)))
+  end
+
+  local rows = math.max(1, math.ceil(visibleCount / columns))
+  local totalWidth = (columns * width) + ((columns - 1) * spacing)
+  local totalHeight = (rows * height) + ((rows - 1) * spacing)
+  self.petContent:SetSize(totalWidth, totalHeight)
+  self.petAnchor:SetSize(totalWidth, totalHeight + HANDLE_HEIGHT)
+end
+
+function SF:AddPetRosterEntry(roster, seen, unit, ownerUnit, ownerName, ownerClassFile)
+  if not unit or not UnitExists(unit) then
+    return
+  end
+
+  local guid = UnitGUID(unit) or unit
+  if seen[guid] then
+    return
+  end
+  seen[guid] = true
+
+  local name = UnitName(unit)
+  if not name or name == "" or name == UNKNOWNOBJECT then
+    name = ownerName and ownerName ~= "" and (ownerName .. "'s pet") or unit
+  end
+
+  roster[#roster + 1] = {
+    unit = unit,
+    name = name,
+    classFile = ownerClassFile,
+    ownerUnit = ownerUnit,
+    ownerName = ownerName,
+    isPet = true,
+  }
+end
+
+function SF:BuildPetRoster()
+  local roster = {}
+  if self.db.preview.mode ~= "off" or not self:IsInAnyGroup() then
+    return roster
+  end
+
+  local seen = {}
+  local playerName
+  local playerClass
+  if UnitName then
+    playerName = UnitName("player")
+  end
+  if UnitClass then
+    local _, detectedClass = UnitClass("player")
+    playerClass = detectedClass
+  end
+  self:AddPetRosterEntry(roster, seen, "pet", "player", playerName, playerClass)
+
+  if self:IsInRaidGroup() then
+    local count = self:GetRaidSize()
+    for i = 1, count do
+      local ownerUnit = "raid" .. i
+      local unit = "raidpet" .. i
+      local ownerName = UnitName and UnitName(ownerUnit)
+      local _, ownerClass = UnitClass(ownerUnit)
+      self:AddPetRosterEntry(roster, seen, unit, ownerUnit, ownerName, ownerClass)
+    end
+  else
+    local count = self:GetPartySize()
+    for i = 1, count do
+      local ownerUnit = "party" .. i
+      local unit = "partypet" .. i
+      local ownerName = UnitName and UnitName(ownerUnit)
+      local _, ownerClass = UnitClass(ownerUnit)
+      self:AddPetRosterEntry(roster, seen, unit, ownerUnit, ownerName, ownerClass)
+    end
+  end
+
+  return roster
+end
+
+function SF:RefreshPetFrame()
+  if InCombatLockdown and InCombatLockdown() then
+    self.pendingPets = true
+    return
+  end
+
+  self.pendingPets = false
+  local pets = self:EnsurePetConfig()
+  if not self.petAnchor then
+    self:CreatePetFrame()
+  end
+
+  self.petUnitToButton = self.petUnitToButton or {}
+  self:WipeTable(self.petUnitToButton)
+
+  if not pets.enabled or not pets.showFrame or self.db.preview.mode ~= "off" then
+    self.petAnchor:Hide()
+    return
+  end
+
+  local roster = self:BuildPetRoster()
+  local shown = 0
+
+  for i = 1, #roster do
+    if shown >= 40 then
+      break
+    end
+
+    local entry = roster[i]
+    if entry.unit and UnitExists(entry.unit) then
+      shown = shown + 1
+      local button = self.petButtons[shown]
+      if not button then
+        break
+      end
+
+      button.entry = entry
+      button.unit = entry.unit
+      button:SetAttribute("type3", "target")
+      button:SetAttribute("unit", entry.unit)
+      self:ApplyClickCastToButton(button)
+      self.petUnitToButton[entry.unit] = button
+      self:UpdateButtonUnit(button, entry.unit)
+      button:Show()
+    end
+  end
+
+  for i = shown + 1, 40 do
+    local button = self.petButtons[i]
+    if button then
+      button.entry = nil
+      button.unit = nil
+      button:SetAttribute("type3", nil)
+      button:SetAttribute("unit", nil)
+      self:ApplyClickCastToButton(button)
+      button:Hide()
+    end
+  end
+
+  if shown == 0 then
+    self.petAnchor:Hide()
+    return
+  end
+
+  self:ApplyPetLayout(shown)
+  self.petAnchor:Show()
+end
+
+function SF:RequestPetFrameRefresh()
+  if InCombatLockdown and InCombatLockdown() then
+    self.pendingPets = true
+    return
+  end
+  self:RefreshPetFrame()
 end
 
 function SF:CreatePriorityFrame()
@@ -1080,6 +1506,103 @@ function SF:ClearClickCastAttributes(button)
   end
 end
 
+function SF:ClearResurrectionSpellCache()
+  self.resurrectionSpellChecked = nil
+  self.resurrectionSpellName = nil
+end
+
+function SF:PlayerKnowsSpellName(spellName)
+  spellName = trimText(spellName)
+  if spellName == "" then
+    return false
+  end
+
+  if not GetNumSpellTabs or not GetSpellTabInfo or not GetSpellBookItemInfo or not GetSpellBookItemName then
+    return false
+  end
+
+  local query = string.lower(spellName)
+  local bookType = BOOKTYPE_SPELL or "spell"
+  local numTabs = GetNumSpellTabs() or 0
+  for tab = 1, numTabs do
+    local _, _, offset, numSpells = GetSpellTabInfo(tab)
+    offset = offset or 0
+    numSpells = numSpells or 0
+
+    for i = 1, numSpells do
+      local slot = offset + i
+      local spellType = GetSpellBookItemInfo(slot, bookType)
+      if spellType == "SPELL" then
+        local name = GetSpellBookItemName(slot, bookType)
+        if name and string.lower(name) == query then
+          return true
+        end
+      end
+    end
+  end
+
+  return false
+end
+
+function SF:GetPlayerResurrectionSpell()
+  if self.resurrectionSpellChecked then
+    return self.resurrectionSpellName
+  end
+
+  self.resurrectionSpellChecked = true
+
+  local candidates = {}
+  local seen = {}
+  local function addCandidate(spellName)
+    spellName = trimText(spellName)
+    if spellName ~= "" and not seen[spellName] then
+      seen[spellName] = true
+      candidates[#candidates + 1] = spellName
+    end
+  end
+
+  local classFile
+  if UnitClass then
+    local _, detectedClass = UnitClass("player")
+    classFile = detectedClass
+  end
+  local classSpells = classFile and self.resurrectionSpells and self.resurrectionSpells[classFile]
+  if classSpells then
+    for i = 1, #classSpells do
+      addCandidate(classSpells[i])
+    end
+  end
+
+  if self.resurrectionSpells then
+    for _, spellList in pairs(self.resurrectionSpells) do
+      for i = 1, #spellList do
+        addCandidate(spellList[i])
+      end
+    end
+  end
+
+  for i = 1, #candidates do
+    if self:PlayerKnowsSpellName(candidates[i]) then
+      self.resurrectionSpellName = candidates[i]
+      return self.resurrectionSpellName
+    end
+  end
+
+  return nil
+end
+
+function SF:BuildClickCastMacro(button, spell, resurrectionSpell)
+  local unit = button and button.unit or "mouseover"
+  spell = trimText(spell)
+  resurrectionSpell = trimText(resurrectionSpell)
+
+  local macro = "/cast [@" .. unit .. ",help,dead] " .. resurrectionSpell
+  if spell ~= "" then
+    macro = macro .. "; [@" .. unit .. ",help,nodead] " .. spell
+  end
+  return macro
+end
+
 function SF:SetClickCastAttribute(button, key, spell)
   local spec = self.clickCastBindingAttributes and self.clickCastBindingAttributes[key]
   if not button or not spec then
@@ -1087,16 +1610,24 @@ function SF:SetClickCastAttribute(button, key, spell)
   end
 
   spell = trimText(spell)
-  if spell == "" then
+  local resurrectionSpell = not button.isPetButton and self:GetPlayerResurrectionSpell()
+  if spell == "" and not (resurrectionSpell and key == "L") then
     self:ClearClickCastAttribute(button, key)
     return
   end
 
   local prefix = spec.prefix or ""
   local suffix = tostring(spec.button)
-  button:SetAttribute(prefix .. "type" .. suffix, "spell")
-  button:SetAttribute(prefix .. "spell" .. suffix, spell)
-  button:SetAttribute(prefix .. "macrotext" .. suffix, nil)
+
+  if resurrectionSpell then
+    button:SetAttribute(prefix .. "type" .. suffix, "macro")
+    button:SetAttribute(prefix .. "spell" .. suffix, nil)
+    button:SetAttribute(prefix .. "macrotext" .. suffix, self:BuildClickCastMacro(button, spell, resurrectionSpell))
+  else
+    button:SetAttribute(prefix .. "type" .. suffix, "spell")
+    button:SetAttribute(prefix .. "spell" .. suffix, spell)
+    button:SetAttribute(prefix .. "macrotext" .. suffix, nil)
+  end
 end
 
 function SF:ApplyClickCastToButton(button)
@@ -1114,7 +1645,11 @@ function SF:ApplyClickCastToButton(button)
 
   for i = 1, #self.clickCastBindingOrder do
     local key = self.clickCastBindingOrder[i]
-    self:SetClickCastAttribute(button, key, canCast and binds[key] or nil)
+    if canCast then
+      self:SetClickCastAttribute(button, key, binds[key])
+    else
+      self:ClearClickCastAttribute(button, key)
+    end
   end
 end
 
@@ -1137,6 +1672,12 @@ function SF:ApplyAllClickCastBindings()
   if self.priorityButtons then
     for i = 1, 40 do
       self:ApplyClickCastToButton(self.priorityButtons[i])
+    end
+  end
+
+  if self.petButtons then
+    for i = 1, 40 do
+      self:ApplyClickCastToButton(self.petButtons[i])
     end
   end
 end
@@ -1171,6 +1712,7 @@ function SF:RefreshRoster()
   self:ApplyRosterToButtons(roster)
   self:LayoutRoster(roster, isRaid)
   self:RefreshPriorityFrame()
+  self:RefreshPetFrame()
   self:RefreshAllUnitData()
   self:UpdateAnchorVisibility()
 end
@@ -1207,7 +1749,7 @@ function SF:LayoutRoster(roster, isRaid)
   local db = self.db.layout
   local width = db.width
   local height = db.height
-  local spacing = db.spacing
+  local spacing = db.spacing or 0
   local unitGrowth = db.unitGrowth
   local groupColumns = self:Clamp(db.groupColumns, 1, 8)
   local showHeaders = isRaid and db.showRaidHeaders
@@ -1218,6 +1760,18 @@ function SF:LayoutRoster(roster, isRaid)
 
   for i = 1, 8 do
     self.headers[i]:Hide()
+  end
+
+  if self.roleHeaders then
+    for subgroup = 1, 8 do
+      for i = 1, #ROLE_LAYOUT_ORDER do
+        local role = ROLE_LAYOUT_ORDER[i]
+        local header = self.roleHeaders[subgroup] and self.roleHeaders[subgroup][role]
+        if header then
+          header:Hide()
+        end
+      end
+    end
   end
 
   for i = 1, 40 do
@@ -1237,7 +1791,7 @@ function SF:LayoutRoster(roster, isRaid)
     elseif subgroup > 8 then
       subgroup = 8
     end
-    if entry.isPlayer then
+    if entry.isPlayer and not isRaid then
       table.insert(groups[subgroup], 1, i)
     else
       groups[subgroup][#groups[subgroup] + 1] = i
@@ -1246,40 +1800,170 @@ function SF:LayoutRoster(roster, isRaid)
 
   local maxMembers = 5
   local groupWidth
-  local groupHeight
+  local baseGroupHeight
 
   if unitGrowth == "RIGHT" then
     groupWidth = (width * maxMembers) + (spacing * (maxMembers - 1))
-    groupHeight = height + (showHeaders and (HEADER_HEIGHT + spacing) or 0)
+    baseGroupHeight = height + (showHeaders and (HEADER_HEIGHT + spacing) or 0)
   else
     groupWidth = width
-    groupHeight = (height * maxMembers) + (spacing * (maxMembers - 1)) + (showHeaders and (HEADER_HEIGHT + spacing) or 0)
+    baseGroupHeight = (height * maxMembers) + (spacing * (maxMembers - 1)) + (showHeaders and (HEADER_HEIGHT + spacing) or 0)
   end
 
+  local function getMembersSpan(memberCount)
+    if memberCount < 1 then
+      return 0
+    end
+    if unitGrowth == "RIGHT" then
+      return height
+    end
+    return (memberCount * height) + ((memberCount - 1) * spacing)
+  end
+
+  local function buildRoleSections(members)
+    if not isRaid then
+      return nil
+    end
+
+    local buckets = {}
+    for i = 1, #ROLE_LAYOUT_ORDER do
+      buckets[ROLE_LAYOUT_ORDER[i]] = {}
+    end
+
+    local hasAssignedRole = false
+    for i = 1, #members do
+      local rosterIndex = members[i]
+      local entry = roster[rosterIndex]
+      local role = entry and self:NormalizeRole(entry.role)
+      if role then
+        hasAssignedRole = true
+      else
+        role = "NONE"
+      end
+      buckets[role][#buckets[role] + 1] = rosterIndex
+    end
+
+    if not hasAssignedRole then
+      return nil
+    end
+
+    local sections = {}
+    for i = 1, #ROLE_LAYOUT_ORDER do
+      local role = ROLE_LAYOUT_ORDER[i]
+      local roleMembers = buckets[role]
+      if roleMembers and #roleMembers > 0 then
+        sections[#sections + 1] = {
+          role = role,
+          members = roleMembers,
+        }
+      end
+    end
+    return sections
+  end
+
+  local function getSectionsHeight(sections)
+    local sectionHeight = 0
+    for i = 1, #sections do
+      if i > 1 then
+        sectionHeight = sectionHeight + spacing
+      end
+      sectionHeight = sectionHeight + ROLE_HEADER_HEIGHT + spacing + getMembersSpan(#sections[i].members)
+    end
+    return sectionHeight
+  end
+
+  local layouts = {}
+  local rowHeights = {}
   local visibleGroups = 0
-  local totalWidth = 0
-  local totalHeight = 0
 
   for subgroup = 1, 8 do
     local members = groups[subgroup]
     if #members > 0 then
       visibleGroups = visibleGroups + 1
-      local gridCol = (visibleGroups - 1) % groupColumns
       local gridRow = math.floor((visibleGroups - 1) / groupColumns)
-      local groupX = gridCol * (groupWidth + spacing * 2)
-      local groupY = -gridRow * (groupHeight + spacing * 2)
-      local startY = groupY
-
-      if showHeaders then
-        local header = self.headers[subgroup]
-        header:SetWidth(groupWidth)
-        header:ClearAllPoints()
-        header:SetPoint("TOPLEFT", self.content, "TOPLEFT", groupX, groupY)
-        header.text:SetText("G" .. subgroup)
-        header:Show()
-        startY = groupY - HEADER_HEIGHT - spacing
+      local sections = buildRoleSections(members)
+      local layoutHeight = baseGroupHeight
+      if sections then
+        layoutHeight = (showHeaders and (HEADER_HEIGHT + spacing) or 0) + getSectionsHeight(sections)
       end
 
+      layouts[#layouts + 1] = {
+        subgroup = subgroup,
+        members = members,
+        sections = sections,
+        gridCol = (visibleGroups - 1) % groupColumns,
+        gridRow = gridRow,
+        height = layoutHeight,
+      }
+      rowHeights[gridRow] = math.max(rowHeights[gridRow] or 0, layoutHeight)
+    end
+  end
+
+  local rowOffsets = {}
+  local runningY = 0
+  local rowCount = math.max(1, math.ceil(#layouts / groupColumns))
+  for row = 0, rowCount - 1 do
+    rowOffsets[row] = -runningY
+    runningY = runningY + (rowHeights[row] or 0)
+    if row < rowCount - 1 then
+      runningY = runningY + spacing * 2
+    end
+  end
+
+  local totalWidth = 0
+  local totalHeight = 0
+
+  for layoutIndex = 1, #layouts do
+    local layout = layouts[layoutIndex]
+    local subgroup = layout.subgroup
+    local members = layout.members
+    local groupX = layout.gridCol * (groupWidth + spacing * 2)
+    local groupY = rowOffsets[layout.gridRow] or 0
+    local startY = groupY
+
+    if showHeaders then
+      local header = self.headers[subgroup]
+      header:SetWidth(groupWidth)
+      header:ClearAllPoints()
+      header:SetPoint("TOPLEFT", self.content, "TOPLEFT", groupX, groupY)
+      header.text:SetText("G" .. subgroup)
+      header:Show()
+      startY = groupY - HEADER_HEIGHT - spacing
+    end
+
+    if layout.sections then
+      local sectionY = startY
+      for sectionIndex = 1, #layout.sections do
+        local section = layout.sections[sectionIndex]
+        if sectionIndex > 1 then
+          sectionY = sectionY - spacing
+        end
+
+        local roleHeader = self.roleHeaders
+          and self.roleHeaders[subgroup]
+          and self.roleHeaders[subgroup][section.role]
+        if roleHeader then
+          roleHeader:SetWidth(groupWidth)
+          roleHeader:ClearAllPoints()
+          roleHeader:SetPoint("TOPLEFT", self.content, "TOPLEFT", groupX, sectionY)
+          self:ApplyRoleHeaderStyle(roleHeader, section.role)
+          roleHeader:Show()
+        end
+
+        sectionY = sectionY - ROLE_HEADER_HEIGHT - spacing
+        for memberIndex = 1, #section.members do
+          local button = self.buttons[section.members[memberIndex]]
+          button:ClearAllPoints()
+          if unitGrowth == "RIGHT" then
+            button:SetPoint("TOPLEFT", self.content, "TOPLEFT", groupX + ((memberIndex - 1) * (width + spacing)), sectionY)
+          else
+            button:SetPoint("TOPLEFT", self.content, "TOPLEFT", groupX, sectionY - ((memberIndex - 1) * (height + spacing)))
+          end
+          button:Show()
+        end
+        sectionY = sectionY - getMembersSpan(#section.members)
+      end
+    else
       for memberIndex = 1, #members do
         local button = self.buttons[members[memberIndex]]
         button:ClearAllPoints()
@@ -1290,10 +1974,10 @@ function SF:LayoutRoster(roster, isRaid)
         end
         button:Show()
       end
-
-      totalWidth = math.max(totalWidth, groupX + groupWidth)
-      totalHeight = math.max(totalHeight, math.abs(groupY) + groupHeight)
     end
+
+    totalWidth = math.max(totalWidth, groupX + groupWidth)
+    totalHeight = math.max(totalHeight, math.abs(groupY) + layout.height)
   end
 
   if #roster == 0 then
@@ -1317,6 +2001,7 @@ function SF:ClearButton(button)
   button.power:SetStatusBarColor(0.06, 0.07, 0.08, 1)
   self:SetTextureColor(button.classStrip, 0.22, 0.23, 0.25, 1)
   button.lowHealth:Hide()
+  self:UpdateRoleIcon(button, nil)
   self:SetRaidIcon(button.raidIcon, nil)
   self:PositionRaidIcon(button)
   self:UpdateAuraIndicators(button, nil, nil)
@@ -1328,6 +2013,7 @@ function SF:UpdateButtonDemo(button, entry)
   local r, g, b = self:GetClassColorByFile(entry.classFile)
   self:SetTextureColor(button.classStrip, r, g, b, 1)
   button.nameText:SetTextColor(r, g, b, 1)
+  self:UpdateRoleIcon(button, entry.role)
 
   local maxHealth = entry.maxHealth or 1
   local health = entry.health or 0
@@ -1380,12 +2066,23 @@ function SF:UpdateButtonUnit(button, unit)
   local entry = button.entry or {}
   local name = UnitName(unit) or entry.name or unit
   local _, classFile = UnitClass(unit)
-  classFile = classFile or entry.classFile
+  classFile = entry.isPet and entry.classFile or classFile or entry.classFile
 
   button.nameText:SetText(name)
-  local r, g, b = self:GetClassColor(unit, classFile)
+  local r, g, b
+  if entry.isPet and classFile then
+    r, g, b = self:GetClassColorByFile(classFile)
+  else
+    r, g, b = self:GetClassColor(unit, classFile)
+  end
   self:SetTextureColor(button.classStrip, r, g, b, 1)
   button.nameText:SetTextColor(r, g, b, 1)
+  local role = nil
+  if not button.isPetButton and not button.isPriorityButton then
+    role = self:GetUnitRole(unit, entry.role)
+    entry.role = role
+  end
+  self:UpdateRoleIcon(button, role)
 
   local maxHealth = UnitHealthMax(unit) or 1
   local health = UnitHealth(unit) or 0
@@ -1466,6 +2163,15 @@ function SF:RefreshAllUnitData()
       end
     end
   end
+
+  if self.petButtons then
+    for i = 1, 40 do
+      local button = self.petButtons[i]
+      if button:IsShown() and button.entry and button.unit then
+        self:UpdateButtonUnit(button, button.unit)
+      end
+    end
+  end
 end
 
 function SF:UpdateUnit(unit)
@@ -1481,6 +2187,11 @@ function SF:UpdateUnit(unit)
   local priorityButton = self.priorityUnitToButton and self.priorityUnitToButton[unit]
   if priorityButton then
     self:UpdateButtonUnit(priorityButton, unit)
+  end
+
+  local petButton = self.petUnitToButton and self.petUnitToButton[unit]
+  if petButton then
+    self:UpdateButtonUnit(petButton, unit)
   end
 end
 
@@ -1512,6 +2223,11 @@ function SF:ApplyPendingMovementStops()
     finishTrackedMove(self.priorityAnchor, self.db.priority.framePosition)
   end
 
+  if self.petAnchor and self.petAnchor.simpleFramesMoveStopPending then
+    self:EnsurePetConfig()
+    finishTrackedMove(self.petAnchor, self.db.pets.framePosition)
+  end
+
   self.pendingMovementStop = nil
 end
 
@@ -1525,6 +2241,9 @@ function SF:ApplyPendingProtected()
   end
   if self.pendingPriority then
     self:RefreshPriorityFrame()
+  end
+  if self.pendingPets then
+    self:RefreshPetFrame()
   end
   if self.pendingBlizzard then
     self:ApplyBlizzardFrames()
