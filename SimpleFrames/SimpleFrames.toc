@@ -1,4 +1,4 @@
-## Interface: 20505
+## Interface: 20506
 ## Title: SimpleFrames
 ## Notes: Clean standalone party and raid frames for Classic Anniversary TBC.
 ## Author: Xyloman

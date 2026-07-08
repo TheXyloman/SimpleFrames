@@ -18,7 +18,7 @@ Copy the `SimpleFrames` folder into:
 
 `World of Warcraft\_anniversary_\Interface\AddOns\SimpleFrames`
 
-The addon TOC targets `## Interface: 20505`.
+The addon TOC targets `## Interface: 20506`.
 
 ## Feature Breakdown
 
