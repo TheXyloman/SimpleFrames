@@ -1,7 +1,7 @@
 local ADDON_NAME, SF = ...
 
 SF.name = ADDON_NAME
-SF.version = "0.1.3"
+SF.version = "0.2.0-beta.2"
 
 SF.defaults = {
   profileVersion = 1,
@@ -133,11 +133,11 @@ SF.clickCastBindingAttributes = {
   AR = { button = 2, prefix = "alt-" },
 }
 
-SF.resurrectionSpells = {
-  PRIEST = { "Resurrection" },
-  PALADIN = { "Redemption" },
-  SHAMAN = { "Ancestral Spirit" },
-  DRUID = { "Revive", "Rebirth" },
+SF.resurrectionSpellIDs = {
+  PRIEST = { 2006 },
+  PALADIN = { 7328 },
+  SHAMAN = { 2008 },
+  DRUID = { 50769, 20484 },
 }
 
 SF.classOrder = {

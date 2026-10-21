@@ -13,45 +13,6 @@ local function getFrameXOffsetMax()
   return math.max(0, width)
 end
 
-local function buildSpellList()
-  local spells = {}
-  local seen = {}
-
-  if not GetNumSpellTabs or not GetSpellTabInfo or not GetSpellBookItemInfo or not GetSpellBookItemName then
-    return spells
-  end
-
-  local bookType = BOOKTYPE_SPELL or "spell"
-  local numTabs = GetNumSpellTabs() or 0
-  for tab = 1, numTabs do
-    local _, _, offset, numSpells = GetSpellTabInfo(tab)
-    offset = offset or 0
-    numSpells = numSpells or 0
-
-    for i = 1, numSpells do
-      local slot = offset + i
-      local spellType = GetSpellBookItemInfo(slot, bookType)
-      if spellType == "SPELL" then
-        local name, subName = GetSpellBookItemName(slot, bookType)
-        if name and name ~= "" then
-          local display = name
-          if subName and subName ~= "" then
-            display = name .. "(" .. subName .. ")"
-          end
-
-          if not seen[display] then
-            seen[display] = true
-            spells[#spells + 1] = display
-          end
-        end
-      end
-    end
-  end
-
-  table.sort(spells)
-  return spells
-end
-
 function SF:CreateOptions()
   if self.optionsFrame then
     return
@@ -370,13 +331,6 @@ function SF:CreateEditBox(parent, label, x, y, width, getter, setter, maxLetters
 
   self:TrackOptionControl(editBox)
   return editBox
-end
-
-function SF:GetSpellSuggestionList(refresh)
-  if refresh or not self.spellSuggestionList then
-    self.spellSuggestionList = buildSpellList()
-  end
-  return self.spellSuggestionList
 end
 
 function SF:EnsureSpellSuggestionFrame()
@@ -899,7 +853,7 @@ function SF:BuildGeneralOptions(panel)
 
   self:CreateCommandButton(panel, "Reset frame", 196, -70, 120, function()
     SF.db.framePosition = SF:CopyDefaults(SF.defaults.framePosition, {})
-    SF:RestoreFramePosition(SF.anchor, SF.db.framePosition, SF.defaults.framePosition)
+    SF:ApplyDatabaseState()
   end)
 
   self:CreateCommandButton(panel, "Reset options", 324, -70, 120, function()
@@ -1156,19 +1110,19 @@ function SF:BuildAuraOptions(panel)
   },
     function() return SF.db.auras.mode end,
     function(value) SF.db.auras.mode = value end,
-    false
+    true
   )
 
   self:CreateSlider(panel, "Buff icons", 220, -34, 0, 4, 1,
     function() return SF.db.auras.maxBuffs end,
     function(value) SF.db.auras.maxBuffs = value end,
-    false
+    true
   )
 
   self:CreateSlider(panel, "Debuff icons", 0, -104, 0, 4, 1,
     function() return SF.db.auras.maxDebuffs end,
     function(value) SF.db.auras.maxDebuffs = value end,
-    false
+    true
   )
 
   self:CreateSlider(panel, "Low health", 220, -104, 5, 40, 1,
@@ -1220,6 +1174,11 @@ function SF:BuildAuraOptions(panel)
     function(value) SF.db.auras.debuffOffsetY = value end,
     true
   )
+  local help = panel:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+  help:SetPoint("TOPLEFT", panel, "TOPLEFT", 0, -444)
+  help:SetWidth(458)
+  help:SetJustifyH("LEFT")
+  help:SetText("Forever can restrict combat aura data. Known stun/silence and dispel indicators appear only when classification is available. Low-health highlighting uses the client display API.")
 end
 
 function SF:BuildSpellOptions(panel)
@@ -1294,6 +1253,13 @@ function SF:BuildSpellOptions(panel)
   slash:SetWidth(458)
   slash:SetJustifyH("LEFT")
   slash:SetText("Slash command: /sfr bind L|R|SL|SR|AL|AR <spell name>")
+
+  local bindingStatus = panel:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+  bindingStatus:SetPoint("TOPLEFT", panel, "TOPLEFT", 0, -366)
+  bindingStatus:SetWidth(458)
+  bindingStatus:SetJustifyH("LEFT")
+  bindingStatus.Refresh = function(control) control:SetText(SF:GetBindingStatus()) end
+  self:TrackOptionControl(bindingStatus)
 
   self:CreateSectionTitle(panel, "Prio Targets", 0, -392)
 

@@ -48,10 +48,10 @@ function SF:HideBlizzardFrame(frame)
 
   self.hiddenFrames[name] = {
     parent = frame:GetParent() or UIParent,
-    shown = frame:IsShown() and true or false,
   }
+  -- The hidden ancestor suppresses visibility while Blizzard continues to
+  -- maintain the frame's own shown state and unit watches as the roster changes.
   frame:SetParent(self.hiddenParent)
-  frame:Hide()
 end
 
 function SF:RestoreBlizzardFrame(frame)
@@ -68,15 +68,9 @@ function SF:RestoreBlizzardFrame(frame)
   frame:SetParent(original.parent or UIParent)
   self.hiddenFrames[name] = nil
 
-  if RegisterUnitWatch then
-    pcall(RegisterUnitWatch, frame)
-  end
-
-  if original.shown then
-    frame:Show()
-  else
-    frame:Hide()
-  end
+  -- Keep the latest Blizzard-owned shown state; replaying a snapshot from
+  -- before a group change would restore the wrong visibility. Unit watches
+  -- were never unregistered and must not be added to manager/container frames.
 end
 
 function SF:ApplyBlizzardFrames()
@@ -100,6 +94,11 @@ function SF:ApplyBlizzardFrames()
 end
 
 function SF:RestoreAllBlizzardFrames()
+  if self:IsCombatLocked() then
+    self.db.hideBlizzard = false
+    self.pendingBlizzard = true
+    return
+  end
   if not self.hiddenFrames then
     return
   end

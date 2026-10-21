@@ -4,21 +4,29 @@
 
 # SimpleFrames
 
-Standalone Classic Anniversary TBC party and raid frames with secure click-casting, spell suggestions, priority targets, profiles, preview mode, and lightweight native options.
+Standalone World of Warcraft: Forever party and raid frames with secure click-casting, spell suggestions, priority targets, profiles, preview mode, and lightweight native options.
 
 SimpleFrames is intentionally dependency-light. It does not embed Ace, LibStub, LibDataBroker, or other addon frameworks.
 
 ## Status
 
-This project is a work in progress and is not yet a final release. Features, saved variables, and behavior may still change.
+**Forever port: 0.2.0-beta.2 — in-game acceptance pending.** Targets official Blizzard Forever only.
+
+The user's in-game `GetBuildInfo()` screenshot confirms **1.60.1, build 70532, Oct 20 2026, interface 16001** (verified October 21, 2026). This confirms the target client, not that the addon has passed gameplay tests. Automated Lua checks pass. User screenshots confirm startup, all diagnostic APIs available, and five-player preview rendering. Live-unit and combat checks remain pending.
+
+The existing appearance and settings are retained. Anniversary TBC is no longer a supported target.
 
 ## Install
 
 Copy the `SimpleFrames` folder into:
 
-`World of Warcraft\_anniversary_\Interface\AddOns\SimpleFrames`
+`World of Warcraft/_forever_/Interface/AddOns/SimpleFrames`
 
-The addon TOC targets `## Interface: 20506`.
+The addon TOC targets `## Interface: 16001`. On this Mac the destination is:
+
+`/Applications/World of Warcraft/_forever_/Interface/AddOns/SimpleFrames`
+
+For a first install, restart the game and enable SimpleFrames in the AddOns list. For subsequent Lua updates, `/reload` is sufficient. Keep any previous addon folder outside `AddOns` as a backup. SavedVariables are not removed or reset during installation.
 
 ## Feature Breakdown
 
@@ -67,7 +75,7 @@ The addon TOC targets `## Interface: 20506`.
 - Optional stun and silence indicators.
 - Buff and debuff icon positions can be adjusted, with horizontal offsets bounded by the current frame width.
 - Debuff coloring is based on dispel type where available.
-- Stun and silence detection is best-effort from visible auras and curated TBC spell IDs.
+- Stun and silence detection is best-effort from visible auras and known spell IDs; restricted aura identities are not classified.
 
 ### Spells And Click-Casting
 
@@ -87,6 +95,9 @@ The addon TOC targets `## Interface: 20506`.
 - Blank right click bindings do nothing. Blank left click does nothing on living units, preserving default behavior.
 - Middle click remains reserved for targeting.
 - Spell binding changes are deferred while in combat.
+- Bindings are local to SimpleFrames and do not change Blizzard's global click bindings.
+- Exact ranked names and learned spell IDs are accepted. Unresolved bindings remain saved but inactive; the Spells tab lists their keys. Learning spells refreshes the list automatically.
+- Automatic resurrection uses the client's secure macro action and must be verified in-game. If the secure macro API is unavailable, ordinary learned spell bindings continue to work and the Spells tab explains the limitation.
 
 Examples:
 
@@ -169,6 +180,7 @@ The options panel is native UI and has no addon-library dependency.
 
 ## Slash Commands
 
+- `/sfr diagnose` prints addon/client versions and API availability without account or character identifiers.
 - `/sfr`, `/sframes`, `/simpleframes`, or `/simpleframe` opens the options panel.
 - `/sfr options` or `/sfr config` also opens the options panel.
 - `/sfr lock` locks frame movement.
@@ -195,7 +207,10 @@ The options panel is native UI and has no addon-library dependency.
 
 WoW restricts secure frame changes in combat. SimpleFrames follows those rules.
 
-- Layout and roster assignment changes are queued until combat ends.
+- Layout, positions, lock state, profile loads, resets, and preview changes wait until combat ends.
+- Roster assignment changes wait until combat ends. Existing buttons continue to display and target their current unit token. New members and pets appear after the protected refresh.
+- When a priority button's token changes occupant during combat, it shows the current occupant with `(changed)` rather than the old priority name. The priority list is rebuilt after combat.
+- Reloading the addon in combat defers frame creation until combat ends.
 - Click-cast binding changes are queued until combat ends.
 - Prio target display refreshes are queued when protected updates are required.
 - Adding, removing, or clearing prio targets is blocked while in combat.
@@ -230,3 +245,52 @@ WoW restricts secure frame changes in combat. SimpleFrames follows those rules.
 - Prio targets: enabled
 - Minimap button: shown
 - Hide Blizzard frames: enabled
+
+
+## Forever restrictions
+
+- Health/power values are passed directly to supported status bars and formatted text widgets. Percentages and low-health alpha use client curves, without Lua arithmetic on restricted values.
+- Buff/debuff icons and stack text use `C_UnitAuras`. Known stun/silence detection and dispel-type priority borders require readable classifications. Restricted identities are omitted; an unavailable classification does not imply the unit has no crowd control or dispellable effect. This is also explained in Auras settings.
+- Crowd-control detection is best-effort against known spell IDs, not a complete catalogue of every new Forever effect.
+- When percentage/curve APIs are unavailable, readable values can still be formatted; restricted values fall back to raw display and unsupported low-health alerts are omitted.
+- API availability alone cannot prove secure actions or combat displays work. `/sfr diagnose` reports capabilities for troubleshooting, not a compatibility certification.
+
+## Validation
+
+Run from the repository root with Lua 5.1:
+
+```sh
+lua tests/run.lua
+```
+
+Alternatively, install `lupa==2.6` into a development Python environment and run `python3 tests/run.py`. The Python runner uses Lupa's Lua 5.1 runtime. Neither Python nor Lupa is required by the addon.
+
+Automated tests cover full UI initialization against widget mocks, opaque restricted values, live data displays, aura removal, spell/rank resolution, invalid and blank bindings, profile preservation, combat deferral, occupant changes, late Blizzard-frame loading, and identity-free diagnostics. The mocks cannot reproduce WoW's secure execution, taint system, engine restrictions, or visual rendering; those require the following client checks.
+
+### In-game observations
+
+- October 21, build 70532, beta.1: user screenshots confirm diagnostics and a five-player preview with bars, text, auras and raid markers. No error dialog appears in these screenshots.
+- The preview exposed buff/health-text overlap and an incorrect DPS texture cell. Beta.2 moves auras below the text within the health bar and uses the client role-icon helper. Visual confirmation of beta.2 is pending.
+- Aura offsets now apply from the bottom corners of the health bar. Existing offset values are preserved. Large fonts/icons or custom offsets may need a taller/wider frame.
+
+### In-game acceptance checklist — remaining scenarios pending
+
+Enable Lua error reporting with `/console scriptErrors 1`, then restart the game for the first installation.
+
+- [ ] Fresh settings: login, `/sfr diagnose`, open all seven options tabs, minimap click/drag, `/reload`, logout/login; no Lua errors.
+- [ ] Existing settings/profiles: save, load, delete, reset, and reload without losing bindings or other profiles.
+- [ ] `/sfr test party`, `/sfr test raid`, animation on/off, layout and font changes, then `/sfr test off`; frames stay within the configured layout.
+- [ ] Solo and five-player party: correct names, classes, roles, raid markers, health/power, death, disconnection, rejoining, zoning, pets appearing/disappearing.
+- [ ] Raid: group and role ordering, subgroup changes, joins/leaves, pets and priority targets at the largest available raid size. Record the tested size.
+- [ ] Bind every supported click combination to a learned spell; test alive/dead units, resurrection, range/mana failure, blank and invalid bindings, learning ranks, and pet casting.
+- [ ] With Blizzard click bindings configured differently, SimpleFrames uses its own bindings and Blizzard frames retain theirs.
+- [ ] Enter real combat: raw/percent/both/off text, low-health threshold, buffs/debuffs added/removed, stacks, readable CC/dispel indicators, and restricted-data behavior; no secret-value errors.
+- [ ] Change profiles, reset, move/lock, change bindings/layout/preview, and change roster/pets during combat. Protected changes apply afterwards without blocked-action/taint errors or stale names.
+- [ ] Hide/restore Blizzard frames, including after roster changes and late module loads.
+- [ ] Reload in combat: initialization waits until combat ends and resumes successfully.
+
+Record the exact build, class, group size, scenario, and first complete Lua error for each test run. Untested classes, raids, locales, and secure-action scenarios remain unverified. Do not label this release fully compatible until this checklist passes on the recorded build.
+
+## API references
+
+The reviewed source snapshot is `172a387e3ab85b26e6640d3058d5ec1e6ccd4c63` (build 70450); the installed target is build 70532, so API differences still require in-game verification. The port follows Blizzard's generated API documentation and secure templates mirrored on the `forever` branch of [Gethe/wow-ui-source](https://github.com/Gethe/wow-ui-source/tree/forever): `UnitDocumentation`, `UnitAuraDocumentation`, `SpellBookDocumentation`, `SimpleFontStringAPIDocumentation`, `SimpleStatusBarAPIDocumentation`, `LuaCurveObjectAPIDocumentation`, and `SecureTemplates.lua`.

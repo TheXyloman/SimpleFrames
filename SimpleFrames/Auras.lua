@@ -84,13 +84,6 @@ function SF:ShouldShowDebuffs()
   return mode == "both" or mode == "debuffs"
 end
 
-local function readAura(unit, index, filter)
-  if not UnitAura then
-    return nil
-  end
-  return UnitAura(unit, index, filter)
-end
-
 function SF:ScanUnitAuras(unit)
   local result = {
     buffs = {},
@@ -111,22 +104,13 @@ function SF:ScanUnitAuras(unit)
 
   if showBuffs and maxBuffs > 0 then
     local count = 0
-    for i = 1, 40 do
-      local name, icon, stacks, dispelType, duration, expirationTime, source, _, _, spellId = readAura(unit, i, "HELPFUL")
-      if not name then
+    for i = 1, 255 do
+      local aura = self:ReadAura(unit, i, "HELPFUL")
+      if not aura then
         break
       end
       count = count + 1
-      result.buffs[count] = {
-        name = name,
-        icon = icon,
-        count = stacks,
-        duration = duration,
-        expirationTime = expirationTime,
-        source = source,
-        spellId = spellId,
-        debuffType = dispelType,
-      }
+      result.buffs[count] = aura
       if count >= maxBuffs then
         break
       end
@@ -136,24 +120,16 @@ function SF:ScanUnitAuras(unit)
   if showDebuffs or (self.db.auras and self.db.auras.showCrowdControl) then
     local count = 0
     local selectedPriority = 0
-    for i = 1, 40 do
-      local name, icon, stacks, dispelType, duration, expirationTime, source, _, _, spellId = readAura(unit, i, "HARMFUL")
-      if not name then
+    for i = 1, 255 do
+      local aura = self:ReadAura(unit, i, "HARMFUL")
+      if not aura then
         break
       end
 
+      local name, spellId, dispelType = aura.name, aura.spellId, aura.debuffType
       if showDebuffs and count < maxDebuffs then
         count = count + 1
-        result.debuffs[count] = {
-          name = name,
-          icon = icon,
-          count = stacks,
-          duration = duration,
-          expirationTime = expirationTime,
-          source = source,
-          spellId = spellId,
-          debuffType = dispelType,
-        }
+        result.debuffs[count] = aura
       end
 
       if dispelType then
@@ -162,7 +138,7 @@ function SF:ScanUnitAuras(unit)
           selectedPriority = priority
           result.debuffType = dispelType
         end
-      elseif not result.debuffType then
+      elseif not aura.restrictedDispel and not result.debuffType then
         result.debuffType = "none"
       end
 
@@ -224,13 +200,15 @@ function SF:UpdateAuraIcon(iconFrame, aura)
     return
   end
 
-  if not aura or not aura.icon then
+  if not aura or (not self:IsSecret(aura.icon) and not aura.icon) then
     iconFrame:Hide()
     return
   end
 
   iconFrame.icon:SetTexture(aura.icon)
-  if aura.count and aura.count > 1 then
+  if self:IsSecret(aura.countText) or aura.countText ~= nil then
+    iconFrame.count:SetText(aura.countText)
+  elseif aura.count and aura.count > 1 then
     iconFrame.count:SetText(aura.count)
   else
     iconFrame.count:SetText("")

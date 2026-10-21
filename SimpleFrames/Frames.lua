@@ -10,7 +10,6 @@ local AURA_ICON_GAP = 2
 local ROLE_ICON_SIZE = 14
 local ROLE_ICON_GAP = 4
 local ROLE_HEADER_HEIGHT = 12
-local ROLE_TEXTURE = "Interface\\LFGFrame\\UI-LFG-ICON-ROLES"
 
 local ROLE_LAYOUT_ORDER = { "TANK", "DAMAGER", "HEALER", "NONE" }
 local ROLE_LABELS = {
@@ -24,11 +23,6 @@ local ROLE_COLORS = {
   DAMAGER = { r = 1.00, g = 0.74, b = 0.32 },
   HEALER = { r = 0.36, g = 1.00, b = 0.52 },
   NONE = { r = 0.58, g = 0.62, b = 0.68 },
-}
-local ROLE_TEX_COORDS = {
-  TANK = { 0.00, 0.25, 0.00, 0.25 },
-  HEALER = { 0.25, 0.50, 0.00, 0.25 },
-  DAMAGER = { 0.50, 0.75, 0.00, 0.25 },
 }
 
 local function trimText(text)
@@ -248,8 +242,10 @@ function SF:CreateAuraIcon(parent)
 end
 
 function SF:CreateUnitButton(index, parent, namePrefix)
-  local button = CreateFrame("Button", (namePrefix or "SimpleFramesUnitButton") .. index, parent or self.content, "SecureUnitButtonTemplate")
-  button:RegisterForClicks("AnyUp")
+  local button = CreateFrame("Button", (namePrefix or "SimpleFramesUnitButton") .. index, parent or self.content, "SecureActionButtonTemplate")
+  button:RegisterForClicks("AnyDown", "AnyUp")
+  button:SetAttribute("useOnKeyDown", false)
+  button:SetAttribute("shift-type3", "")
   button:SetAttribute("type1", nil)
   button:SetAttribute("type2", nil)
   button:SetAttribute("type3", "target")
@@ -428,19 +424,23 @@ function SF:ApplyButtonStyle(button)
   button.silenceText:SetFont(fontPath, math.max(9, nameFontSize - 1), "OUTLINE")
   button.raidIcon:SetSize(raidIconSize, raidIconSize)
 
+  local hasAuraRow = (self:ShouldShowBuffs() and (auras.maxBuffs or 0) > 0)
+    or (self:ShouldShowDebuffs() and (auras.maxDebuffs or 0) > 0)
+  local textRowY = hasAuraRow and ((healthHeight - math.max(nameFontSize, healthFontSize)) / 2 - 1) or 0
+
   button.nameText:ClearAllPoints()
   if text.namePosition == "center" then
-    button.nameText:SetPoint("CENTER", button.health, "CENTER", nameOffsetX, text.nameOffsetY or 0)
+    button.nameText:SetPoint("CENTER", button.health, "CENTER", nameOffsetX, textRowY + (text.nameOffsetY or 0))
     button.nameText:SetWidth(math.max(60, width - 78))
     button.nameText:SetJustifyH("CENTER")
   else
-    button.nameText:SetPoint("LEFT", button.health, "LEFT", 8 + nameOffsetX, text.nameOffsetY or 0)
+    button.nameText:SetPoint("LEFT", button.health, "LEFT", 8 + nameOffsetX, textRowY + (text.nameOffsetY or 0))
     button.nameText:SetPoint("RIGHT", button.healthText, "LEFT", -5, 0)
     button.nameText:SetJustifyH("LEFT")
   end
 
   button.healthText:ClearAllPoints()
-  button.healthText:SetPoint("RIGHT", button.health, "RIGHT", -5 + healthOffsetX, text.healthOffsetY or 0)
+  button.healthText:SetPoint("RIGHT", button.health, "RIGHT", -5 + healthOffsetX, textRowY + (text.healthOffsetY or 0))
 
   button.powerText:ClearAllPoints()
   button.powerText:SetPoint("RIGHT", button.power, "RIGHT", -5 + powerOffsetX, text.powerOffsetY or 0)
@@ -451,16 +451,17 @@ function SF:ApplyButtonStyle(button)
     local buff = button.buffIcons[i]
     buff:SetSize(buffSize, buffSize)
     buff:ClearAllPoints()
-    buff:SetPoint("TOPRIGHT", button, "TOPRIGHT", -((i - 1) * (buffSize + AURA_ICON_GAP)) - 20 + buffOffsetX, -2 + (auras.buffOffsetY or 0))
+    buff:SetPoint("BOTTOMRIGHT", button.health, "BOTTOMRIGHT", -5 - ((i - 1) * (buffSize + AURA_ICON_GAP)) + buffOffsetX, 1 + (auras.buffOffsetY or 0))
 
     local debuff = button.debuffIcons[i]
     debuff:SetSize(debuffSize, debuffSize)
     debuff:ClearAllPoints()
-    debuff:SetPoint("BOTTOMLEFT", button, "BOTTOMLEFT", 6 + ((i - 1) * (debuffSize + AURA_ICON_GAP)) + debuffOffsetX, 2 + (auras.debuffOffsetY or 0))
+    debuff:SetPoint("BOTTOMLEFT", button.health, "BOTTOMLEFT", 6 + ((i - 1) * (debuffSize + AURA_ICON_GAP)) + debuffOffsetX, 1 + (auras.debuffOffsetY or 0))
   end
 end
 
 function SF:NormalizeRole(role)
+  role = self:Readable(role)
   if not role then
     return nil
   end
@@ -491,7 +492,16 @@ function SF:GetUnitRole(unit, rosterRole)
     end
   end
 
-  if GetPartyAssignment and unit and GetPartyAssignment("MAINTANK", unit) then
+  -- During combat the cached layout can belong to an earlier occupant. Read
+  -- the current raid token's roster role rather than reusing entry.role.
+  local raidIndex = unit and tonumber(string.match(unit, "^raid(%d+)$"))
+  if raidIndex and GetRaidRosterInfo then
+    local _, _, _, _, _, _, _, _, _, assigned, _, combatRole = GetRaidRosterInfo(raidIndex)
+    role = self:NormalizeRole(combatRole) or self:NormalizeRole(assigned)
+    if role then return role end
+  end
+
+  if GetPartyAssignment and unit and self:Readable(GetPartyAssignment("MAINTANK", unit)) then
     return "TANK"
   end
 
@@ -504,14 +514,23 @@ function SF:SetRoleIconTexture(texture, role)
   end
 
   role = self:NormalizeRole(role)
-  local coords = role and ROLE_TEX_COORDS[role]
-  if not coords then
+  if not role then
     texture:Hide()
     return false
   end
 
-  texture:SetTexture(ROLE_TEXTURE)
-  texture:SetTexCoord(coords[1], coords[2], coords[3], coords[4])
+  -- Use the client's role artwork rather than guessing cells in a texture sheet.
+  local atlas = GetMicroIconForRole and GetMicroIconForRole(role)
+  if atlas and texture.SetAtlas and C_Texture and C_Texture.GetAtlasInfo(atlas) then
+    texture:SetTexCoord(0, 1, 0, 1)
+    texture:SetAtlas(atlas, false)
+  elseif GetTexCoordsForRoleSmallCircle then
+    texture:SetTexture("Interface\\LFGFrame\\UI-LFG-ICON-PORTRAITROLES")
+    texture:SetTexCoord(GetTexCoordsForRoleSmallCircle(role))
+  else
+    texture:Hide()
+    return false
+  end
   texture:Show()
   return true
 end
@@ -565,8 +584,9 @@ function SF:PositionRaidIcon(button)
   local icon = button.raidIcon
   icon:ClearAllPoints()
 
-  local nameWidth = button.nameText:GetStringWidth() or 0
-  local maxNameWidth = button.nameText:GetWidth() or 0
+  local nameWidth = self:Readable(button.nameText:GetStringWidth())
+    or self:Readable(button.nameText:GetWidth()) or 0
+  local maxNameWidth = self:Readable(button.nameText:GetWidth()) or 0
   if maxNameWidth > 0 and nameWidth > maxNameWidth then
     nameWidth = maxNameWidth
   end
@@ -621,6 +641,8 @@ function SF:UpdateHandleVisibility()
 end
 
 function SF:ApplyLockState()
+  if self:IsCombatLocked() then self.pendingLock = true; return end
+  self.pendingLock = nil
   if not self.anchor then
     return
   end
@@ -746,6 +768,11 @@ function SF:SetPreviewMode(mode)
     mode = "off"
   end
 
+  if self:IsCombatLocked() then
+    self.pendingPreviewMode = mode
+    self:Print("preview change queued until combat ends")
+    return
+  end
   self.db.preview.mode = mode
   if mode == "off" then
     self:StopPreviewTicker()
@@ -785,9 +812,9 @@ function SF:BuildRealRoster()
         local name, subgroup, classFile, role
         if GetRaidRosterInfo then
           local rosterName, _, rosterSubgroup, _, _, rosterClassFile, _, _, _, rosterRole, _, combatRole = GetRaidRosterInfo(i)
-          name = rosterName
-          subgroup = rosterSubgroup
-          classFile = rosterClassFile
+          name = self:Readable(rosterName)
+          subgroup = self:Readable(rosterSubgroup)
+          classFile = self:Readable(rosterClassFile)
           role = self:GetUnitRole(unit, combatRole)
           if not role then
             role = self:GetUnitRole(unit, rosterRole)
@@ -960,12 +987,12 @@ function SF:TogglePriorityForButton(button)
     return false
   end
 
-  local guid = UnitGUID(unit)
+  local guid = self:Readable(UnitGUID(unit))
   if not guid then
     return false
   end
 
-  local name = UnitName(unit) or (button.entry and button.entry.name) or unit
+  local name = self:Readable(UnitName(unit)) or unit
   local _, classFile = UnitClass(unit)
   classFile = classFile or (button.entry and button.entry.classFile)
 
@@ -982,53 +1009,14 @@ function SF:TogglePriorityForButton(button)
 end
 
 function SF:AttachPriorityToggleHooks(button)
-  if not button or button.priorityToggleHooked then
-    return
-  end
-
+  if not button or button.priorityToggleHooked then return end
   button.priorityToggleHooked = true
-  button:HookScript("PreClick", function(clicked, mouseButton)
-    if mouseButton ~= "MiddleButton" or not IsShiftKeyDown or not IsShiftKeyDown() then
-      return
+  -- Shift-middle is a permanent no-op secure action, so the handler never
+  -- mutates action attributes in PreClick/PostClick or during combat.
+  button:HookScript("PostClick", function(clicked, mouseButton, down)
+    if not down and mouseButton == "MiddleButton" and IsShiftKeyDown() and not SF:IsCombatLocked() then
+      SF:TogglePriorityForButton(clicked)
     end
-
-    if not SF:TogglePriorityForButton(clicked) then
-      return
-    end
-
-    if InCombatLockdown and InCombatLockdown() then
-      return
-    end
-
-    clicked.suppressMiddleClickRestore = true
-    clicked:SetAttribute("type3", "none")
-    clicked:SetAttribute("spell3", nil)
-    clicked:SetAttribute("macrotext3", nil)
-    clicked:SetAttribute("shift-type3", "none")
-    clicked:SetAttribute("shift-spell3", nil)
-    clicked:SetAttribute("shift-macrotext3", nil)
-  end)
-
-  button:HookScript("PostClick", function(clicked, mouseButton)
-    if mouseButton ~= "MiddleButton" or not clicked.suppressMiddleClickRestore then
-      return
-    end
-
-    clicked.suppressMiddleClickRestore = nil
-    if InCombatLockdown and InCombatLockdown() then
-      return
-    end
-
-    if clicked.entry and not clicked.entry.isDemo and clicked.unit then
-      clicked:SetAttribute("type3", "target")
-    else
-      clicked:SetAttribute("type3", nil)
-    end
-    clicked:SetAttribute("shift-type3", nil)
-    clicked:SetAttribute("spell3", nil)
-    clicked:SetAttribute("macrotext3", nil)
-    clicked:SetAttribute("shift-spell3", nil)
-    clicked:SetAttribute("shift-macrotext3", nil)
   end)
 end
 
@@ -1127,13 +1115,14 @@ function SF:AddPetRosterEntry(roster, seen, unit, ownerUnit, ownerName, ownerCla
     return
   end
 
-  local guid = UnitGUID(unit) or unit
+  local guid = self:Readable(UnitGUID(unit)) or unit
   if seen[guid] then
     return
   end
   seen[guid] = true
 
-  local name = UnitName(unit)
+  local name = self:Readable(UnitName(unit))
+  ownerName = self:Readable(ownerName)
   if not name or name == "" or name == UNKNOWNOBJECT then
     name = ownerName and ownerName ~= "" and (ownerName .. "'s pet") or unit
   end
@@ -1365,7 +1354,7 @@ function SF:BuildPriorityUnitMap()
 
   for unit in pairs(self.unitToButton) do
     if unit and UnitExists(unit) then
-      local guid = UnitGUID(unit)
+      local guid = self:Readable(UnitGUID(unit))
       if guid then
         self.priorityGuidToUnit[guid] = unit
       end
@@ -1414,6 +1403,7 @@ function SF:RefreshPriorityFrame()
         name = info.name,
         classFile = info.classFile,
         isPriority = true,
+        guid = guid,
       }
       button.unit = unit
       button:SetAttribute("type3", "target")
@@ -1491,7 +1481,7 @@ function SF:ClearClickCastAttribute(button, key)
 
   local prefix = spec.prefix or ""
   local suffix = tostring(spec.button)
-  button:SetAttribute(prefix .. "type" .. suffix, nil)
+  button:SetAttribute(prefix .. "type" .. suffix, "")
   button:SetAttribute(prefix .. "spell" .. suffix, nil)
   button:SetAttribute(prefix .. "macrotext" .. suffix, nil)
 end
@@ -1507,88 +1497,11 @@ function SF:ClearClickCastAttributes(button)
 end
 
 function SF:ClearResurrectionSpellCache()
-  self.resurrectionSpellChecked = nil
-  self.resurrectionSpellName = nil
+  self:InvalidateSpellCache()
 end
 
 function SF:PlayerKnowsSpellName(spellName)
-  spellName = trimText(spellName)
-  if spellName == "" then
-    return false
-  end
-
-  if not GetNumSpellTabs or not GetSpellTabInfo or not GetSpellBookItemInfo or not GetSpellBookItemName then
-    return false
-  end
-
-  local query = string.lower(spellName)
-  local bookType = BOOKTYPE_SPELL or "spell"
-  local numTabs = GetNumSpellTabs() or 0
-  for tab = 1, numTabs do
-    local _, _, offset, numSpells = GetSpellTabInfo(tab)
-    offset = offset or 0
-    numSpells = numSpells or 0
-
-    for i = 1, numSpells do
-      local slot = offset + i
-      local spellType = GetSpellBookItemInfo(slot, bookType)
-      if spellType == "SPELL" then
-        local name = GetSpellBookItemName(slot, bookType)
-        if name and string.lower(name) == query then
-          return true
-        end
-      end
-    end
-  end
-
-  return false
-end
-
-function SF:GetPlayerResurrectionSpell()
-  if self.resurrectionSpellChecked then
-    return self.resurrectionSpellName
-  end
-
-  self.resurrectionSpellChecked = true
-
-  local candidates = {}
-  local seen = {}
-  local function addCandidate(spellName)
-    spellName = trimText(spellName)
-    if spellName ~= "" and not seen[spellName] then
-      seen[spellName] = true
-      candidates[#candidates + 1] = spellName
-    end
-  end
-
-  local classFile
-  if UnitClass then
-    local _, detectedClass = UnitClass("player")
-    classFile = detectedClass
-  end
-  local classSpells = classFile and self.resurrectionSpells and self.resurrectionSpells[classFile]
-  if classSpells then
-    for i = 1, #classSpells do
-      addCandidate(classSpells[i])
-    end
-  end
-
-  if self.resurrectionSpells then
-    for _, spellList in pairs(self.resurrectionSpells) do
-      for i = 1, #spellList do
-        addCandidate(spellList[i])
-      end
-    end
-  end
-
-  for i = 1, #candidates do
-    if self:PlayerKnowsSpellName(candidates[i]) then
-      self.resurrectionSpellName = candidates[i]
-      return self.resurrectionSpellName
-    end
-  end
-
-  return nil
+  return self:ResolveKnownSpell(spellName) ~= nil
 end
 
 function SF:BuildClickCastMacro(button, spell, resurrectionSpell)
@@ -1610,7 +1523,14 @@ function SF:SetClickCastAttribute(button, key, spell)
   end
 
   spell = trimText(spell)
+  local requested = spell
+  local known = self:ResolveKnownSpell(spell)
   local resurrectionSpell = not button.isPetButton and self:GetPlayerResurrectionSpell()
+  if requested ~= "" and not known then
+    self:ClearClickCastAttribute(button, key)
+    return
+  end
+  spell = known and known.display or ""
   if spell == "" and not (resurrectionSpell and key == "L") then
     self:ClearClickCastAttribute(button, key)
     return
@@ -1619,13 +1539,13 @@ function SF:SetClickCastAttribute(button, key, spell)
   local prefix = spec.prefix or ""
   local suffix = tostring(spec.button)
 
-  if resurrectionSpell then
+  if resurrectionSpell and C_Macro and C_Macro.RunMacroText then
     button:SetAttribute(prefix .. "type" .. suffix, "macro")
     button:SetAttribute(prefix .. "spell" .. suffix, nil)
     button:SetAttribute(prefix .. "macrotext" .. suffix, self:BuildClickCastMacro(button, spell, resurrectionSpell))
   else
     button:SetAttribute(prefix .. "type" .. suffix, "spell")
-    button:SetAttribute(prefix .. "spell" .. suffix, spell)
+    button:SetAttribute(prefix .. "spell" .. suffix, known and known.id or nil)
     button:SetAttribute(prefix .. "macrotext" .. suffix, nil)
   end
 end
@@ -2008,6 +1928,7 @@ function SF:ClearButton(button)
 end
 
 function SF:UpdateButtonDemo(button, entry)
+  button.lowHealth:SetAlpha(1)
   button.nameText:SetText(entry.name or "")
 
   local r, g, b = self:GetClassColorByFile(entry.classFile)
@@ -2064,78 +1985,41 @@ function SF:UpdateButtonUnit(button, unit)
   end
 
   local entry = button.entry or {}
-  local name = UnitName(unit) or entry.name or unit
+  local name = UnitName(unit)
+  if not self:IsSecret(name) and not name then name = unit end
   local _, classFile = UnitClass(unit)
-  classFile = entry.isPet and entry.classFile or classFile or entry.classFile
-
-  button.nameText:SetText(name)
-  local r, g, b
-  if entry.isPet and classFile then
-    r, g, b = self:GetClassColorByFile(classFile)
-  else
-    r, g, b = self:GetClassColor(unit, classFile)
+  if entry.isPet and entry.ownerUnit then
+    _, classFile = UnitClass(entry.ownerUnit)
   end
+  local r, g, b = self:GetClassColorByFile(classFile)
+  local guid = self:Readable(UnitGUID(unit))
+  local moved = entry.isPriority and entry.guid and guid ~= entry.guid
+  if moved and not self:IsSecret(name) then name = name .. " (changed)" end
+  button.nameText:SetText(name)
   self:SetTextureColor(button.classStrip, r, g, b, 1)
   button.nameText:SetTextColor(r, g, b, 1)
-  local role = nil
-  if not button.isPetButton and not button.isPriorityButton then
-    role = self:GetUnitRole(unit, entry.role)
-    entry.role = role
-  end
-  self:UpdateRoleIcon(button, role)
+  self:UpdateRoleIcon(button, self:GetUnitRole(unit))
 
-  local maxHealth = UnitHealthMax(unit) or 1
-  local health = UnitHealth(unit) or 0
-  if maxHealth < 1 then
-    maxHealth = 1
-  end
-  if health < 0 then
-    health = 0
-  end
-
-  button.health:SetMinMaxValues(0, maxHealth)
-  button.health:SetValue(health)
-
-  local connected = UnitIsConnected(unit)
-  local dead = UnitIsDeadOrGhost(unit)
-
+  self:SetVitalDisplay(button.health, button.healthText, unit, "health", self.db.text.health)
+  self:SetVitalDisplay(button.power, button.powerText, unit, "power", self.db.text.power)
+  local connected = self:Readable(UnitIsConnected(unit))
+  local dead = self:Readable(UnitIsDeadOrGhost(unit))
   if connected == false then
     button.health:SetStatusBarColor(0.25, 0.26, 0.28, 1)
     button.healthText:SetText("OFF")
-  elseif dead then
+  elseif dead == true then
     button.health:SetStatusBarColor(0.38, 0.04, 0.04, 1)
     button.healthText:SetText("DEAD")
   else
     button.health:SetStatusBarColor(r * 0.72, g * 0.72, b * 0.72, 1)
-    button.healthText:SetText(self:FormatValue(health, maxHealth, self.db.text.health))
   end
-
-  local maxPower = UnitPowerMax(unit) or 1
-  local power = UnitPower(unit) or 0
-  if maxPower < 1 then
-    maxPower = 1
-  end
-  button.power:SetMinMaxValues(0, maxPower)
-  button.power:SetValue(power)
-
   local pr, pg, pb = self:GetPowerColor(unit)
   button.power:SetStatusBarColor(pr, pg, pb, 1)
-  button.powerText:SetText(self:FormatValue(power, maxPower, self.db.text.power))
-
-  local pct = (health / maxHealth) * 100
-  if connected ~= false and not dead and pct <= (self.db.auras.lowHealthThreshold or 15) then
-    button.lowHealth:Show()
-  else
-    button.lowHealth:Hide()
-  end
-
-  if self.db.layout.showRaidIcons then
-    self:SetRaidIcon(button.raidIcon, GetRaidTargetIndex and GetRaidTargetIndex(unit))
-  else
-    self:SetRaidIcon(button.raidIcon, nil)
-  end
+  self:UpdateLowHealth(button.lowHealth, unit, connected, dead)
+  local marker
+  if self.db.layout.showRaidIcons then marker = GetRaidTargetIndex(unit) end
+  self:SetRaidIcon(button.raidIcon, marker)
   self:PositionRaidIcon(button)
-
   self:UpdateAuraIndicators(button, unit, entry)
 end
 
@@ -2175,7 +2059,7 @@ function SF:RefreshAllUnitData()
 end
 
 function SF:UpdateUnit(unit)
-  if not unit or self.db.preview.mode ~= "off" then
+  if not unit or (self.roster and self.roster[1] and self.roster[1].isDemo) then
     return
   end
 
@@ -2196,6 +2080,7 @@ function SF:UpdateUnit(unit)
 end
 
 function SF:UpdateAnchorVisibility()
+  if self:IsCombatLocked() then self.pendingProtected = true; return end
   if not self.anchor then
     return
   end
@@ -2232,7 +2117,27 @@ function SF:ApplyPendingMovementStops()
 end
 
 function SF:ApplyPendingProtected()
+  if self:IsCombatLocked() then return end
   self:ApplyPendingMovementStops()
+  if self.pendingDatabase then
+    SimpleFramesDB = self.pendingDatabase
+    self.db = SimpleFramesDB
+    self.pendingDatabase = nil
+    self:ApplyDatabaseState()
+  elseif self.pendingDatabaseState then
+    self:ApplyDatabaseState()
+  end
+  if self.pendingPositions then
+    local positions = self.pendingPositions
+    self.pendingPositions = nil
+    for frame, saved in pairs(positions) do self:RestoreFramePosition(frame, saved) end
+  end
+  if self.pendingPreviewMode then
+    local mode = self.pendingPreviewMode
+    self.pendingPreviewMode = nil
+    self:SetPreviewMode(mode)
+  end
+  if self.pendingLock then self:ApplyLockState() end
   if self.pendingProtected then
     self:RefreshRoster()
   end
