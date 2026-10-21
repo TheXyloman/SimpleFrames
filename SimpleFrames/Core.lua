@@ -118,6 +118,8 @@ function SF:CreateDatabaseFromProfile(profile)
 end
 
 function SF:ApplyDatabaseState()
+  if self:IsCombatLocked() then self.pendingDatabaseState = true; return end
+  self.pendingDatabaseState = nil
   if self.anchor then
     self:RestoreFramePosition(self.anchor, self.db.framePosition, self.defaults.framePosition)
   end
@@ -185,8 +187,19 @@ function SF:LoadProfile(name)
     return false
   end
 
-  SimpleFramesDB = self:CreateDatabaseFromProfile(profile)
-  self.db = SimpleFramesDB
+  local database = self:CreateDatabaseFromProfile(profile)
+  if self:IsCombatLocked() then
+    self.pendingPreviewMode = nil
+    self.pendingDatabase = database
+    self.selectedProfileName = name
+    self.profileNameInputText = name
+    self:Print("profile queued until combat ends: " .. name)
+    self:SetProfileStatus("Queued profile: " .. name)
+    self:RefreshOptions()
+    return true
+  end
+  SimpleFramesDB = database
+  self.db = database
   self.selectedProfileName = name
   self.profileNameInputText = name
 
@@ -233,6 +246,12 @@ function SF:ListProfiles()
 end
 
 function SF:ResetDatabase()
+  if self:IsCombatLocked() then
+    self.pendingPreviewMode = nil
+    self.pendingDatabase = self:CopyDefaults(self.defaults, {})
+    self:Print("settings reset queued until combat ends")
+    return
+  end
   SimpleFramesDB = self:CopyDefaults(self.defaults, {})
   self.db = SimpleFramesDB
   self:ApplyDatabaseState()
@@ -254,6 +273,8 @@ function SF:RegisterRuntimeEvents()
   frame:RegisterEvent("UNIT_PET")
   frame:RegisterEvent("RAID_TARGET_UPDATE")
   frame:RegisterEvent("SPELLS_CHANGED")
+  frame:RegisterEvent("SPELL_TEXT_UPDATE")
+  frame:RegisterEvent("SPELL_DATA_LOAD_RESULT")
   pcall(function()
     frame:RegisterEvent("RAID_ROSTER_UPDATE")
   end)
@@ -272,18 +293,26 @@ function SF:RegisterRuntimeEvents()
 end
 
 function SF:OnAddonLoaded()
+  self:InitializeClient()
   self:InitDatabase()
+  self:RegisterRuntimeEvents()
+  self:RegisterSlashCommands()
+  self:InitializeUI()
+end
+
+function SF:InitializeUI()
+  if self:IsCombatLocked() then
+    self.pendingInitialize = true
+    self:Print("initialization queued until combat ends")
+    return
+  end
+  self.pendingInitialize = nil
   self:CreateFrames()
   self:CreateOptions()
   self:CreateMinimapButton()
-  self:RegisterRuntimeEvents()
-  self:RegisterSlashCommands()
   self:RefreshRoster()
   self:ApplyBlizzardFrames()
-
-  if self.db.preview.mode ~= "off" and self.db.preview.animate then
-    self:StartPreviewTicker()
-  end
+  if self.db.preview.mode ~= "off" and self.db.preview.animate then self:StartPreviewTicker() end
 end
 
 function SF:RegisterSlashCommands()
@@ -408,6 +437,12 @@ function SF:HandleSlash(message)
   local rawMessage = trimText(message)
   message = string.lower(rawMessage)
 
+  if message == "diagnose" then self:Diagnose(); return end
+  if self.pendingInitialize then
+    self:Print("frames will initialize when combat ends; /sfr diagnose is available")
+    return
+  end
+
   if message == "" or message == "options" or message == "config" then
     self:ToggleOptions()
     return
@@ -466,7 +501,7 @@ function SF:HandleSlash(message)
 
   if message == "reset" then
     self:ResetDatabase()
-    self:Print("settings reset")
+    if not self:IsCombatLocked() then self:Print("settings reset") end
     return
   end
 
@@ -486,10 +521,12 @@ function SF:HandleSlash(message)
     return
   end
 
-  self:Print("/sfr, /sfr lock, /sfr unlock, /sfr bind L|R|SL|SR|AL|AR <spell>, /sfr prio clear, /sfr test party, /sfr test raid, /sfr test off, /sfr reset, /sfr profiles")
+  self:Print("/sfr, /sfr lock, /sfr unlock, /sfr bind L|R|SL|SR|AL|AR <spell>, /sfr prio clear, /sfr test party, /sfr test raid, /sfr test off, /sfr reset, /sfr profiles, /sfr diagnose")
 end
 
 function SF:OnRosterEvent()
+  -- Unit tokens can change occupant while layout remains combat-locked.
+  self:RefreshAllUnitData()
   self:RequestProtectedRefresh()
   self:ApplyBlizzardFrames()
 end
@@ -503,6 +540,10 @@ function SF:OnUnitEvent(unit)
 end
 
 function SF:OnEvent(event, ...)
+  if self.pendingInitialize then
+    if event == "PLAYER_REGEN_ENABLED" then self:InitializeUI() end
+    return
+  end
   if event == "PLAYER_ENTERING_WORLD" then
     self:RequestProtectedRefresh()
     self:ApplyBlizzardFrames()
@@ -529,13 +570,15 @@ function SF:OnEvent(event, ...)
   end
 
   if event == "UNIT_PET" then
+    self:RefreshAllUnitData()
     self:RequestPetFrameRefresh()
     return
   end
 
-  if event == "SPELLS_CHANGED" or event == "LEARNED_SPELL_IN_TAB" then
+  if event == "SPELLS_CHANGED" or event == "LEARNED_SPELL_IN_TAB" or event == "SPELL_TEXT_UPDATE" or event == "SPELL_DATA_LOAD_RESULT" then
     self:ClearResurrectionSpellCache()
     self:RequestClickCastRefresh()
+    self:RefreshOptions()
     return
   end
 
@@ -559,8 +602,9 @@ eventFrame:SetScript("OnEvent", function(_, event, ...)
   if event == "ADDON_LOADED" then
     local addonName = ...
     if addonName == ADDON_NAME then
-      eventFrame:UnregisterEvent("ADDON_LOADED")
       SF:OnAddonLoaded()
+    elseif SF.db and not SF.pendingInitialize then
+      SF:ApplyBlizzardFrames()
     end
   else
     SF:OnEvent(event, ...)

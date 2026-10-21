@@ -102,6 +102,12 @@ function SF:RestoreFramePosition(frame, saved, fallback)
     return
   end
 
+  if self:IsCombatLocked() then
+    self.pendingPositions = self.pendingPositions or {}
+    self.pendingPositions[frame] = self:DeepCopy(saved or fallback or {})
+    return
+  end
+
   saved = saved or fallback or {}
   frame:ClearAllPoints()
   frame:SetPoint(
@@ -114,6 +120,7 @@ function SF:RestoreFramePosition(frame, saved, fallback)
 end
 
 function SF:GetClassColorByFile(classFile)
+  classFile = self:Readable(classFile)
   if not classFile then
     return 0.55, 0.58, 0.62
   end
@@ -130,7 +137,7 @@ end
 function SF:GetClassColor(unit, classFile)
   if unit and UnitExists(unit) then
     local _, detected = UnitClass(unit)
-    classFile = detected or classFile
+    classFile = self:Readable(detected) or classFile
   end
   return self:GetClassColorByFile(classFile)
 end
@@ -141,6 +148,7 @@ function SF:GetPowerColor(unit)
     powerType, powerToken = UnitPowerType(unit)
   end
 
+  powerType, powerToken = self:Readable(powerType), self:Readable(powerToken)
   local color
   if PowerBarColor and powerToken and PowerBarColor[powerToken] then
     color = PowerBarColor[powerToken]
@@ -298,6 +306,7 @@ function SF:SetRaidIcon(texture, index)
     return
   end
 
+  index = self:Readable(index)
   if not index or index < 1 then
     texture:Hide()
     return
